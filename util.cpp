@@ -103,8 +103,7 @@ void print_help() {
   fprintf(stderr,
           " Usage: ./main [-i pth] [-o pth] [-p pth] [-a pth] [-vswh]\n");
   fprintf(stderr, " Options:\n");
-  fprintf(stderr,
-          "  -i : input binary path (default: data/bins/input1N.bin)\n");
+  fprintf(stderr, "  -i : input binary path (default: data/bins/input1N.bin)\n");
   fprintf(stderr, "  -o : output binary path (default: output.bin)\n");
   fprintf(stderr, "  -p : parameter binary path (default: data/weights.bin)\n");
   fprintf(stderr,
