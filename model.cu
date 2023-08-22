@@ -45,7 +45,8 @@ static Tensor *conv0_weight, *conv0_bias, *conv1_weight, *conv1_bias,
     *instanceNorm2d0_bias, *instanceNorm2d1_weight, *instanceNorm2d1_bias;
 
 static Tensor *input, *output, *c1, *i1, *m1, *c2, *i2, *m2, *l1, *l2;
-void initialize_model(const char *parameter_fname) {
+void initialize_model(const char *parameter_fname)
+{
   size_t m; // 2345922
   float *buf = (float *)read_binary(parameter_fname, &m);
   conv0_weight = new Tensor(buf, {128, 1, 3, 3});
@@ -127,8 +128,10 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 // size of in & out = N
 static void relu(Tensor *inout_t);
 
-void model_forward(float *inputN, float *outputN) {
-  for (int idx = 0; idx < N; idx++) {
+void model_forward(float *inputN, float *outputN)
+{
+  for (int idx = 0; idx < N; idx++)
+  {
     memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
 
     conv2d(input, c1, conv0_weight, conv0_bias);
@@ -150,7 +153,8 @@ void model_forward(float *inputN, float *outputN) {
 }
 
 static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                   Tensor *bias_t) {
+                   Tensor *bias_t)
+{
   float *in = in_t->buf;
   float *out = out_t->buf;
   float *weight = weight_t->buf;
@@ -166,13 +170,19 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int H_OUT = H_IN - K + 1; //=out_t->shape[1];
   int W_OUT = W_IN - K + 1; //=out_t->shape[2];
 
-  for (int c_out = 0; c_out < C_OUT; c_out++) {
-    for (int h_out = 0; h_out < H_OUT; h_out++) {
-      for (int w_out = 0; w_out < W_OUT; w_out++) {
+  for (int c_out = 0; c_out < C_OUT; c_out++)
+  {
+    for (int h_out = 0; h_out < H_OUT; h_out++)
+    {
+      for (int w_out = 0; w_out < W_OUT; w_out++)
+      {
         out[c_out * H_OUT * W_OUT + h_out * W_OUT + w_out] = bias[c_out];
-        for (int c_in = 0; c_in < C_IN; c_in++) {
-          for (int kh = 0; kh < K; kh++) {
-            for (int kw = 0; kw < K; kw++) {
+        for (int c_in = 0; c_in < C_IN; c_in++)
+        {
+          for (int kh = 0; kh < K; kh++)
+          {
+            for (int kw = 0; kw < K; kw++)
+            {
               out[c_out * H_OUT * W_OUT + h_out * W_OUT + w_out] +=
                   in[c_in * H_IN * W_IN + (h_out + kh) * W_IN + (w_out + kw)] *
                   weight[c_out * C_IN * K * K + c_in * K * K + kh * K + kw];
@@ -185,7 +195,8 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 }
 
 static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                           Tensor *bias_t) {
+                           Tensor *bias_t)
+{
   float *in = in_t->buf;
   float *out = out_t->buf;
   float *weight = weight_t->buf;
@@ -195,27 +206,34 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int H = in_t->shape[1]; //=out_t->shape[1];
   int W = in_t->shape[2]; //=out_t->shape[2];
 
-  for (int c = 0; c < C; c++) {
+  for (int c = 0; c < C; c++)
+  {
     float e = 0, v = 0;
 
     // Caculate mean
-    for (int h = 0; h < H; h++) {
-      for (int w = 0; w < W; w++) {
+    for (int h = 0; h < H; h++)
+    {
+      for (int w = 0; w < W; w++)
+      {
         e += in[c * H * W + h * W + w];
       }
     }
     e /= H * W;
 
     // Caculate Variance
-    for (int h = 0; h < H; h++) {
-      for (int w = 0; w < W; w++) {
+    for (int h = 0; h < H; h++)
+    {
+      for (int w = 0; w < W; w++)
+      {
         v += (in[c * H * W + h * W + w] - e) * (in[c * H * W + h * W + w] - e);
       }
     }
     v /= H * W;
 
-    for (int h = 0; h < H; h++) {
-      for (int w = 0; w < W; w++) {
+    for (int h = 0; h < H; h++)
+    {
+      for (int w = 0; w < W; w++)
+      {
         out[c * H * W + h * W + w] =
             (in[c * H * W + h * W + w] - e) / sqrt(v + 1e-5) * weight[c] +
             bias[c];
@@ -225,7 +243,8 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 }
 
 static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                   Tensor *bias_t) {
+                   Tensor *bias_t)
+{
   float *in = in_t->buf;
   float *out = out_t->buf;
   float *weight = weight_t->buf;
@@ -236,10 +255,13 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   int N = in_t->get_elem() / H_IN; //=out_t->get_elem()/H_OUT
 
-  for (int n = 0; n < N; n++) {
-    for (int h_out = 0; h_out < H_OUT; h_out++) {
+  for (int n = 0; n < N; n++)
+  {
+    for (int h_out = 0; h_out < H_OUT; h_out++)
+    {
       out[n * H_OUT + h_out] = bias[h_out];
-      for (int h_in = 0; h_in < H_IN; h_in++) {
+      for (int h_in = 0; h_in < H_IN; h_in++)
+      {
         out[n * H_OUT + h_out] +=
             in[n * H_IN + h_in] * weight[h_out * H_IN + h_in];
       }
@@ -247,7 +269,8 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   }
 }
 
-static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW) {
+static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
+{
   float *in = in_t->buf;
   float *out = out_t->buf;
 
@@ -258,9 +281,12 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW) {
 
   int N = in_t->shape[0];
 
-  for (int n = 0; n < N; n++) {
-    for (int h_out = 0; h_out < H_OUT; h_out++) {
-      for (int w_out = 0; w_out < W_OUT; w_out++) {
+  for (int n = 0; n < N; n++)
+  {
+    for (int h_out = 0; h_out < H_OUT; h_out++)
+    {
+      for (int w_out = 0; w_out < W_OUT; w_out++)
+      {
         out[n * H_OUT * W_OUT + h_out * W_OUT + w_out] =
             in[n * H_IN * W_IN + (h_out * kH) * H_IN + (w_out * kW)];
         for (int kh = 0; kh < kH; kh++)
@@ -274,15 +300,18 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW) {
   }
 }
 
-static void relu(Tensor *inout_t) {
+static void relu(Tensor *inout_t)
+{
   float *inout = inout_t->buf;
   int N = inout_t->get_elem();
-  for (int n = 0; n < N; n++) {
+  for (int n = 0; n < N; n++)
+  {
     inout[n] = fmaxf(inout[n], 0);
   }
 }
 
-void finalize_model() {
+void finalize_model()
+{
   delete (conv0_weight);
   delete (conv0_bias);
   delete (conv1_weight);

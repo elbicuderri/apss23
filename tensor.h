@@ -3,7 +3,8 @@
 #include <vector>
 using namespace std;
 
-struct Tensor {
+struct Tensor
+{
   int n = 0;
   int ndim = 0;
   int shape[4];
