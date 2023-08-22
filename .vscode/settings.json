@@ -1,4 +1,9 @@
 {
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.default.cppStandard": "c++14",
+    "C_Cpp.default.includePath": [
+        "/usr/local/cuda/include"
+    ],
     "files.associations": {
         "tensor": "cpp",
         "any": "cpp",
