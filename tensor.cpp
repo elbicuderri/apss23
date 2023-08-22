@@ -4,8 +4,6 @@
 #include "tensor.h"
 #include "util.h"
 
-#include "cuda_runtime.h"
-
 #define CHECK_CUDA(call)                                                       \
   do {                                                                         \
     cudaError_t status_ = call;                                                \
@@ -28,7 +26,8 @@ Tensor::Tensor(float *data, const vector<int> &shape_) {
   reshape(shape_);
   // buf = (float *)malloc(n * sizeof(float));
   CHECK_CUDA(cudaMallocHost((void **)&buf, n * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
+  // CHECK_CUDA(cudaMemcpy(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
+  CHECK_CUDA(cudaMemcpyAsync(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
   // memcpy(buf, data, get_elem() * sizeof(float));
 }
 

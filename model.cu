@@ -4,6 +4,20 @@
 #include "model.h"
 #include "util.h"
 
+#define NUM_OF_THREADS 256
+
+#define CHECK_CUDA(call)                                                 \
+  do                                                                     \
+  {                                                                      \
+    cudaError_t status_ = call;                                          \
+    if (status_ != cudaSuccess)                                          \
+    {                                                                    \
+      fprintf(stderr, "CUDA error (%s:%d): %s:%s\n", __FILE__, __LINE__, \
+              cudaGetErrorName(status_), cudaGetErrorString(status_));   \
+      exit(EXIT_FAILURE);                                                \
+    }                                                                    \
+  } while (0)
+
 extern int N;
 
 // class BrainTumorModel(nn.Module):
@@ -88,6 +102,7 @@ void initialize_model(const char *parameter_fname)
   m2 = new Tensor({256, 62, 62});
   l1 = new Tensor({256, 62, 128});
   l2 = new Tensor({256, 62, 64});
+  CHECK_CUDA(cudaDeviceSynchronize());
 }
 // Conv2D
 // https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
@@ -132,7 +147,13 @@ void model_forward(float *inputN, float *outputN)
 {
   for (int idx = 0; idx < N; idx++)
   {
-    memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
+    // memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
+
+    // For test
+    CHECK_CUDA(cudaMemcpy(input->buf,
+                          inputN + 256 * 256 * idx,
+                          256 * 256 * sizeof(float),
+                          cudaMemcpyHostToHost));
 
     conv2d(input, c1, conv0_weight, conv0_bias);
     instancenorm2d(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
@@ -300,15 +321,48 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
   }
 }
 
+__global__ void relu_kernel(float *X, int N)
+{
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tid >= N)
+    return;
+
+  float val = X[tid] > 0.0f ? X[tid] : 0.0f;
+  X[tid] = val;
+}
+
 static void relu(Tensor *inout_t)
 {
+  printf("relu on GPU!!!\n");
+
   float *inout = inout_t->buf;
   int N = inout_t->get_elem();
-  for (int n = 0; n < N; n++)
-  {
-    inout[n] = fmaxf(inout[n], 0);
-  }
+
+  // float *tmp_buf = inout_t->gpu_buf;
+  auto tmp_buf = inout_t->gpu_buf;
+
+  CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
+
+  dim3 gridDim((N + NUM_OF_THREADS - 1) / NUM_OF_THREADS);
+  dim3 blockDim(NUM_OF_THREADS);
+
+  relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
+
+  CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
+
+  inout_t->free_gpu_buf();
 }
+
+// static void relu(Tensor *inout_t)
+// {
+//   float *inout = inout_t->buf;
+//   int N = inout_t->get_elem();
+//   for (int n = 0; n < N; n++)
+//   {
+//     inout[n] = fmaxf(inout[n], 0);
+//   }
+// }
 
 void finalize_model()
 {
