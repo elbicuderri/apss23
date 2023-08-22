@@ -3,12 +3,12 @@
 #include <vector>
 using namespace std;
 
-struct Tensor
-{
+struct Tensor {
   int n = 0;
   int ndim = 0;
   int shape[4];
   float *buf = nullptr;
+  float *gpu_buf = nullptr;
   Tensor(const vector<int> &shape_);
   Tensor(float *data, const vector<int> &shape_);
 
