@@ -4,8 +4,6 @@
 #include "tensor.h"
 #include "util.h"
 
-#include "cuda_runtime.h"
-
 #define CHECK_CUDA(call)                                                       \
   do {                                                                         \
     cudaError_t status_ = call;                                                \

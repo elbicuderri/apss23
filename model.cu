@@ -338,7 +338,8 @@ static void relu(Tensor *inout_t)
   float *inout = inout_t->buf;
   int N = inout_t->get_elem();
 
-  float *tmp_buf = inout_t->gpu_buf;
+  // float *tmp_buf = inout_t->gpu_buf;
+  auto tmp_buf = inout_t->gpu_buf;
 
   CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
   CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
@@ -349,7 +350,8 @@ static void relu(Tensor *inout_t)
   relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
 
   CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(cudaFree((void *)tmp_buf));
+
+  inout_t->free_gpu_buf();
 }
 
 // static void relu(Tensor *inout_t)
