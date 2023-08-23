@@ -97,6 +97,7 @@
         "orderingmethods": "cpp",
         "matrixfunctions": "cpp",
         "nonlinearoptimization": "cpp",
-        "writer_ternary_8bank cpp": "cpp"
+        "writer_ternary_8bank cpp": "cpp",
+        "__nullptr": "cpp"
     }
 }

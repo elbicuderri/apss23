@@ -1,7 +1,9 @@
 CXX=g++
 CUX=/usr/local/cuda/bin/nvcc
-    
+
 CFLAGS=-std=c++14 -O3 -Wall -march=native -mavx2 -fopenmp -I/usr/local/cuda/include
+# CFLAGS=-std=c++14 -g -O0 -DDEBUG -Wall -march=native -mavx2 -fopenmp -I/usr/local/cuda/include
+
 CUDA_CFLAGS:=$(foreach option, $(CFLAGS),-Xcompiler=$(option))
 LDFLAGS=-pthread -L/usr/local/cuda/lib64
 LDLIBS=-lstdc++ -lcudart -lm
