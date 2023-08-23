@@ -190,6 +190,8 @@ static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 // size of in & out = N
 static void relu(Tensor *inout_t);
 
+static void relu_gpu(Tensor *inout_t);
+
 void model_forward(float *inputN, float *outputN)
 {
   printf("model_forward\n");
@@ -206,33 +208,31 @@ void model_forward(float *inputN, float *outputN)
   instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
   // maxpool2d_v2(i1, m1, 2, 2);
-
   maxpool2d_gpu(i1, m1, 2, 2);
 
-  relu(m1);
+  // relu(m1);
+  relu_gpu(m1);
 
   conv2d_v2(m1, c2, conv1_weight, conv1_bias);
 
   instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
   // maxpool2d_v2(i2, m2, 2, 2);
-
   maxpool2d_gpu(i2, m2, 2, 2);
 
-  relu(m2);
+  // relu(m2);
+  relu_gpu(m2);
 
   // linear_v2(m2, l1, linear1_weight, linear1_bias);
-
   linear_gpu(m2, l1, linear1_weight, linear1_bias);
 
-  relu(l1);
+  // relu(l1);
+  relu_gpu(l1);
 
   // linear_v2(l1, l2, linear2_weight, linear2_bias);
-
   linear_gpu(l1, l2, linear2_weight, linear2_bias);
 
   // linear_v2(l2, output, linear3_weight, linear3_bias);
-
   linear_gpu(l2, output, linear3_weight, linear3_bias);
 
   memcpy(outputN, output->buf, N * 2 * sizeof(float));
@@ -840,38 +840,37 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
   }
 }
 
-// __global__ void relu_kernel(float *X, int N)
-// {
-//   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-//   if (tid >= N)
-//     return;
+__global__ void relu_kernel(float *inout, int N)
+{
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tid >= N)
+    return;
 
-//   float val = X[tid] > 0.0f ? X[tid] : 0.0f;
-//   X[tid] = val;
-// }
+  float val = inout[tid] > 0.0f ? inout[tid] : 0.0f;
+  inout[tid] = val;
+}
 
-// static void relu(Tensor *inout_t)
-// {
-//   // printf("relu on GPU!!!\n");
+static void relu_gpu(Tensor *inout_t)
+{
+  printf("relu on GPU!!!\n");
 
-//   float *inout = inout_t->buf;
-//   int N = inout_t->get_elem();
+  float *inout = inout_t->buf;
+  int N = inout_t->get_elem();
 
-//   // float *tmp_buf = inout_t->gpu_buf;
-//   auto tmp_buf = inout_t->gpu_buf;
+  auto tmp_buf = inout_t->gpu_buf;
 
-//   CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
-//   CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
+  CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
 
-//   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-//   dim3 blockDim(THREADS_PER_BLOCK);
+  dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  dim3 blockDim(THREADS_PER_BLOCK);
 
-//   relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
+  relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
 
-//   CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
 
-//   inout_t->free_gpu_buf();
-// }
+  inout_t->free_gpu_buf();
+}
 
 static void relu(Tensor *inout_t)
 {
