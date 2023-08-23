@@ -124,7 +124,7 @@ void initialize_model(const char *parameter_fname)
 
   l2 = new Tensor({N, 1, 256 * 62 * 64});
 
-  output = new Tensor({N, 2});
+  output = new Tensor({N, 1, 2});
 
   std::cout << "========================" << std::endl;
   std::cout << "initialize_model" << std::endl;
@@ -182,6 +182,9 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                       Tensor *bias_t);
 
+static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                       Tensor *bias_t);
+
 // ReLU (inplace)
 // https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html
 // size of in & out = N
@@ -218,13 +221,19 @@ void model_forward(float *inputN, float *outputN)
 
   relu(m2);
 
-  linear_v2(m2, l1, linear1_weight, linear1_bias);
+  // linear_v2(m2, l1, linear1_weight, linear1_bias);
+
+  linear_gpu(m2, l1, linear1_weight, linear1_bias);
 
   relu(l1);
 
-  linear_v2(l1, l2, linear2_weight, linear2_bias);
+  // linear_v2(l1, l2, linear2_weight, linear2_bias);
 
-  linear_v2(l2, output, linear3_weight, linear3_bias);
+  linear_gpu(l1, l2, linear2_weight, linear2_bias);
+
+  // linear_v2(l2, output, linear3_weight, linear3_bias);
+
+  linear_gpu(l2, output, linear3_weight, linear3_bias);
 
   memcpy(outputN, output->buf, N * 2 * sizeof(float));
 }
@@ -473,6 +482,102 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   }
 }
 
+__global__ void linear_kernel(float *in, float *out, float *weight, float *bias, int B, int M, int N, int K)
+{
+
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  int output_numel = B * M * N;
+  if (tid >= output_numel)
+  {
+    return;
+  }
+
+  // input (B, M, K)
+  // weight (N, K)
+  // bias (N)
+  // output(B, M, N)
+
+  // n: output n-index
+  int n = tid % N;
+  int idx = tid / N;
+
+  // m: output m-index
+  int m = idx % M;
+
+  // b: output batch-index
+  int b = idx / M;
+
+  float sum = bias[n];
+  for (int k = 0; k < K; k++)
+  {
+    int in_idx = b * M * K + m * K + k;
+    // int weight_idx = n * K + k;
+    int weight_idx = n * K + k;
+    sum += in[in_idx] * weight[weight_idx];
+  }
+  out[tid] = sum;
+}
+
+static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                       Tensor *bias_t)
+{
+  std::cout << "linear on GPU!!!" << std::endl;
+
+  // input (B, M, K)
+  // weight (N, K)
+  // bias (N)
+  // output(B, M, N)
+
+  int B = in_t->shape[0];
+  int M = in_t->shape[1];
+
+  int K = weight_t->shape[0];
+  int N = weight_t->shape[1];
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+
+  float *in_cpu = in_t->buf;
+  float *out_cpu = out_t->buf;
+
+  auto in_gpu = in_t->gpu_buf;
+  auto out_gpu = out_t->gpu_buf;
+
+  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+
+  //////
+  int weight_numel = weight_t->get_elem();
+  int bias_numel = bias_t->get_elem();
+
+  float *weight_cpu = weight_t->buf;
+  float *bias_cpu = bias_t->buf;
+
+  auto weight_gpu = weight_t->gpu_buf;
+  auto bias_gpu = bias_t->gpu_buf;
+
+  CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  dim3 blockDim(THREADS_PER_BLOCK);
+
+  linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K);
+
+  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  in_t->free_gpu_buf();
+  out_t->free_gpu_buf();
+  weight_t->free_gpu_buf();
+  bias_t->free_gpu_buf();
+}
+
 static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                       Tensor *bias_t)
 {
@@ -488,6 +593,13 @@ static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   int K = weight_t->shape[0]; // in_t의 마지막 차원
   int N = weight_t->shape[1]; // out_t의 마지막 차원
+  // int N = out_t->shape[2]; // out_t의 마지막 차원
+
+  std::cout << "========================" << std::endl;
+  std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
+  std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
+  std::cout << "out_t->shape[2]: " << out_t->shape[2] << std::endl;
+  std::cout << "========================" << std::endl;
 
   for (int b = 0; b < B; b++)
   {
@@ -541,7 +653,7 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   }
 }
 
-__global__ void maxpool2d_kernel(float *out, float *in, int N, int C, int H_IN, int W_IN, int kH, int kW)
+__global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
 {
 
   int H_OUT = H_IN / kH;
@@ -593,8 +705,6 @@ __global__ void maxpool2d_kernel(float *out, float *in, int N, int C, int H_IN, 
       }
     }
   }
-
-  // int out_idx = n * C * H_OUT * W_OUT + c * H_OUT * W_OUT + h_out * W_OUT + w_out;
   out[tid] = max_val;
 }
 
@@ -611,9 +721,6 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   int H_IN = in_t->shape[2];
   int W_IN = in_t->shape[3];
 
-  int H_OUT = H_IN / kH; // =out_t->shape[2];
-  int W_OUT = W_IN / kW; // =out_t->shape[3];
-
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
@@ -628,7 +735,7 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  maxpool2d_kernel<<<gridDim, blockDim>>>(out_gpu, in_gpu, N, C, H_IN, W_IN, kH, kW);
+  maxpool2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, N, C, H_IN, W_IN, kH, kW);
 
   CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
