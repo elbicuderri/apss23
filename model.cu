@@ -202,18 +202,24 @@ void model_forward(float *inputN, float *outputN)
 {
   printf("model_forward\n");
   printf("N: %d\n", N);
+  std::cout << "========================" << std::endl;
 
-  // For test
-  CHECK_CUDA(cudaMemcpy(input->buf,
+  // // For test
+  // CHECK_CUDA(cudaMemcpy(input->buf,
+  //                       inputN,
+  //                       N * 256 * 256 * sizeof(float),
+  //                       cudaMemcpyHostToHost));
+
+  CHECK_CUDA(cudaMemcpy(input->gpu_buf,
                         inputN,
                         N * 256 * 256 * sizeof(float),
-                        cudaMemcpyHostToHost));
+                        cudaMemcpyHostToDevice));
 
   // conv2d_v2(input, c1, conv0_weight, conv0_bias);
   conv2d_gpu(input, c1, conv0_weight, conv0_bias);
 
-  instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-  // instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+  // instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+  instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
   // maxpool2d_v2(i1, m1, 2, 2);
   maxpool2d_gpu(i1, m1, 2, 2);
@@ -224,7 +230,8 @@ void model_forward(float *inputN, float *outputN)
   // conv2d_v2(m1, c2, conv1_weight, conv1_bias);
   conv2d_gpu(m1, c2, conv1_weight, conv1_bias);
 
-  instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+  // instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+  instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
   // maxpool2d_v2(i2, m2, 2, 2);
   maxpool2d_gpu(i2, m2, 2, 2);
@@ -244,7 +251,8 @@ void model_forward(float *inputN, float *outputN)
   // linear_v2(l2, output, linear3_weight, linear3_bias);
   linear_gpu(l2, output, linear3_weight, linear3_bias);
 
-  memcpy(outputN, output->buf, N * 2 * sizeof(float));
+  // memcpy(outputN, output->buf, N * 2 * sizeof(float));
+  CHECK_CUDA(cudaMemcpy(outputN, output->gpu_buf, N * 2 * sizeof(float), cudaMemcpyDeviceToHost));
 }
 
 // void model_forward(float *inputN, float *outputN)
@@ -378,39 +386,39 @@ static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
 
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
+  // float *in_cpu = in_t->buf;
+  // float *out_cpu = out_t->buf;
+  // float *weight_cpu = weight_t->buf;
+  // float *bias_cpu = bias_t->buf;
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
 
-  //////
-  CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // //////
+  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
 
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   conv2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, K, H, W, kH, kW);
 
-  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
-  in_t->free_gpu_buf();
-  out_t->free_gpu_buf();
-  weight_t->free_gpu_buf();
-  bias_t->free_gpu_buf();
+  // in_t->free_gpu_buf();
+  // out_t->free_gpu_buf();
+  // weight_t->free_gpu_buf();
+  // bias_t->free_gpu_buf();
 }
 
 static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -602,7 +610,7 @@ __global__ void instancenorm2d_kernel(const float *in, float *out, const float *
   // }
   // var /= H * W;
   // __syncthreads();
-  // 
+  //
   // if (tid < output_numel)
   // {
   //   out[tid] = ((in[tid] - mean) / sqrt(var + 1e-5)) * weight[c] + bias[c];
@@ -660,24 +668,24 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   // bias (C)
   // output(N, C, H, W)
 
-  std::cout << "========================" << std::endl;
-  std::cout << "in_t->shape[0]: " << in_t->shape[0] << std::endl;
-  std::cout << "in_t->shape[1]: " << in_t->shape[1] << std::endl;
-  std::cout << "in_t->shape[2]: " << in_t->shape[2] << std::endl;
-  std::cout << "in_t->shape[3]: " << in_t->shape[3] << std::endl;
-  std::cout << "========================" << std::endl;
+  // std::cout << "========================" << std::endl;
+  // std::cout << "in_t->shape[0]: " << in_t->shape[0] << std::endl;
+  // std::cout << "in_t->shape[1]: " << in_t->shape[1] << std::endl;
+  // std::cout << "in_t->shape[2]: " << in_t->shape[2] << std::endl;
+  // std::cout << "in_t->shape[3]: " << in_t->shape[3] << std::endl;
+  // std::cout << "========================" << std::endl;
 
-  std::cout << "========================" << std::endl;
-  std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
-  std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
-  std::cout << "out_t->shape[2]: " << out_t->shape[2] << std::endl;
-  std::cout << "out_t->shape[3]: " << out_t->shape[3] << std::endl;
-  std::cout << "========================" << std::endl;
+  // std::cout << "========================" << std::endl;
+  // std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
+  // std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
+  // std::cout << "out_t->shape[2]: " << out_t->shape[2] << std::endl;
+  // std::cout << "out_t->shape[3]: " << out_t->shape[3] << std::endl;
+  // std::cout << "========================" << std::endl;
 
-  std::cout << "========================" << std::endl;
-  std::cout << "weight_t->shape[0]: " << weight_t->shape[0] << std::endl;
-  std::cout << "bias_t->shape[0]: " << bias_t->shape[0] << std::endl;
-  std::cout << "========================" << std::endl;
+  // std::cout << "========================" << std::endl;
+  // std::cout << "weight_t->shape[0]: " << weight_t->shape[0] << std::endl;
+  // std::cout << "bias_t->shape[0]: " << bias_t->shape[0] << std::endl;
+  // std::cout << "========================" << std::endl;
 
   int N = in_t->shape[0];
   int C = in_t->shape[1];
@@ -689,48 +697,48 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
 
-  std::cout << "========================" << std::endl;
-  std::cout << "in_numel: " << in_numel << std::endl;
-  std::cout << "out_numel: " << out_numel << std::endl;
-  std::cout << "weight_numel: " << weight_numel << std::endl;
-  std::cout << "bias_numel: " << bias_numel << std::endl;
-  std::cout << "========================" << std::endl;
+  // std::cout << "========================" << std::endl;
+  // std::cout << "in_numel: " << in_numel << std::endl;
+  // std::cout << "out_numel: " << out_numel << std::endl;
+  // std::cout << "weight_numel: " << weight_numel << std::endl;
+  // std::cout << "bias_numel: " << bias_numel << std::endl;
+  // std::cout << "========================" << std::endl;
 
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
+  // float *in_cpu = in_t->buf;
+  // float *out_cpu = out_t->buf;
+  // float *weight_cpu = weight_t->buf;
+  // float *bias_cpu = bias_t->buf;
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
 
-  //////
-  CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // //////
+  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-  dim3 blockDim(THREADS_PER_BLOCK);
+  // dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  // dim3 blockDim(THREADS_PER_BLOCK);
 
   // instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
 
   instancenorm2d_kernel<<<1, 1>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
 
-  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
-  in_t->free_gpu_buf();
-  out_t->free_gpu_buf();
-  weight_t->free_gpu_buf();
-  bias_t->free_gpu_buf();
+  // in_t->free_gpu_buf();
+  // out_t->free_gpu_buf();
+  // weight_t->free_gpu_buf();
+  // bias_t->free_gpu_buf();
 }
 
 static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -891,44 +899,43 @@ static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
+  // float *in_cpu = in_t->buf;
+  // float *out_cpu = out_t->buf;
+  // float *weight_cpu = weight_t->buf;
+  // float *bias_cpu = bias_t->buf;
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
 
   //////
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
 
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
-
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
 
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K);
 
-  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
-  in_t->free_gpu_buf();
-  out_t->free_gpu_buf();
-  weight_t->free_gpu_buf();
-  bias_t->free_gpu_buf();
+  // in_t->free_gpu_buf();
+  // out_t->free_gpu_buf();
+  // weight_t->free_gpu_buf();
+  // bias_t->free_gpu_buf();
 }
 
 static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -1065,8 +1072,8 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
 {
   std::cout << "maxpool2d on GPU!!!" << std::endl;
 
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
+  // float *in_cpu = in_t->buf;
+  // float *out_cpu = out_t->buf;
 
   int N = in_t->shape[0];
   int C = in_t->shape[1];
@@ -1080,20 +1087,20 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
 
-  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
 
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   maxpool2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, N, C, H_IN, W_IN, kH, kW);
 
-  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
-  in_t->free_gpu_buf();
-  out_t->free_gpu_buf();
+  // in_t->free_gpu_buf();
+  // out_t->free_gpu_buf();
 }
 
 static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW)
@@ -1212,17 +1219,17 @@ static void relu_gpu(Tensor *inout_t)
 
   auto tmp_buf = inout_t->gpu_buf;
 
-  CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
-  CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
+  // CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
+  // CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
 
   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
 
-  CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
+  // CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
 
-  inout_t->free_gpu_buf();
+  // inout_t->free_gpu_buf();
 }
 
 static void relu(Tensor *inout_t)
