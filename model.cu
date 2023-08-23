@@ -122,11 +122,8 @@ void initialize_model(const char *parameter_fname)
   // l1 = new Tensor({N, 256, 62, 128});
 
   l2 = new Tensor({N, 1, 256 * 62 * 64});
-  // l2 = new Tensor({N, 256, 62, 64});
 
   output = new Tensor({N, 2});
-  // output = new Tensor({N, 2});
-  // output = new Tensor({N, 1, 1, 2});
 
   std::cout << "========================" << std::endl;
   std::cout << "initialize_model" << std::endl;
@@ -134,23 +131,6 @@ void initialize_model(const char *parameter_fname)
   std::cout << "parameter_fname" << std::endl;
   std::cout << parameter_fname << std::endl;
   std::cout << "========================" << std::endl;
-
-  // input = new Tensor({1, 256, 256});
-  // output = new Tensor({2});
-  // c1 = new Tensor({128, 254, 254});
-  // i1 = new Tensor({128, 254, 254});
-  // m1 = new Tensor({128, 127, 127});
-  // c2 = new Tensor({256, 125, 125});
-  // i2 = new Tensor({256, 125, 125});
-  // m2 = new Tensor({256, 62, 62});
-
-  // // m2 = new Tensor({N, 256 * 62, 62});
-
-  // l1 = new Tensor({256, 62, 128});
-  // // l1 = new Tensor({N, 256, 62, 128});
-  // // l1 = new Tensor({N, 256 * 62, 128});
-
-  // l2 = new Tensor({256, 62, 64});
 
   CHECK_CUDA(cudaDeviceSynchronize());
 }
@@ -208,15 +188,12 @@ void model_forward(float *inputN, float *outputN)
 {
   printf("model_forward\n");
   printf("N: %d\n", N);
-  // printf("N: %d\n", N);
 
-  memcpy(input->buf, inputN, N * 256 * 256 * sizeof(float));
-
-  // // For test
-  // CHECK_CUDA(cudaMemcpy(input->buf,
-  //                       inputN,
-  //                       N * 256 * 256 * sizeof(float),
-  //                       cudaMemcpyHostToHost));
+  // For test
+  CHECK_CUDA(cudaMemcpy(input->buf,
+                        inputN,
+                        N * 256 * 256 * sizeof(float),
+                        cudaMemcpyHostToHost));
 
   conv2d_v2(input, c1, conv0_weight, conv0_bias);
 
@@ -234,112 +211,16 @@ void model_forward(float *inputN, float *outputN)
 
   relu(m2);
 
-  // m2 {N, 256, 62, 62}
-  // l1 {N, 256, 62, 128}
-  // m2->reshape({N, 256 * 62, 62});
   linear_v2(m2, l1, linear1_weight, linear1_bias);
-
-  // m2->reshape({256, 62, 62});
-  // linear(m2, l1, linear1_weight, linear1_bias);
 
   relu(l1);
 
-  // l1 {N, 256, 62, 128}
-  // l2 {N, 256, 62, 64}
-  // l1->reshape({256, 62, 128});
-  // linear_v2(l1, l2, linear2_weight, linear2_bias);
   linear_v2(l1, l2, linear2_weight, linear2_bias);
 
-  // l2->reshape({N, 1, 1, 1015808});
-  // l2->reshape({N, 1, 256 * 62 * 64});
   linear_v2(l2, output, linear3_weight, linear3_bias);
-  // linear(l2, output, linear3_weight, linear3_bias);
-  // output->reshape({N, 2});
 
   memcpy(outputN, output->buf, N * 2 * sizeof(float));
 }
-
-// void model_forward(float *inputN, float *outputN)
-// {
-//   printf("model_forward\n");
-//   printf("N: %d\n", N);
-//   // printf("N: %d\n", N);
-
-//   for (int idx = 0; idx < N; idx++)
-//   {
-//     // memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
-
-//     // For test
-//     CHECK_CUDA(cudaMemcpy(input->buf,
-//                           inputN + 256 * 256 * idx,
-//                           256 * 256 * sizeof(float),
-//                           cudaMemcpyHostToHost));
-
-//     // std::cout << "========================" << std::endl;
-//     // std::cout << "input shape" << std::endl;
-//     // input->print_shape();
-//     // std::cout << "========================" << std::endl;
-
-//     // conv2d(input, c1, conv0_weight, conv0_bias);
-
-//     input->reshape({N, 1, 256, 256});
-
-//     // std::cout << "========================" << std::endl;
-//     // std::cout << "input shape" << std::endl;
-//     // input->print_shape();
-//     // std::cout << "========================" << std::endl;
-
-//     conv2d_v2(input, c1, conv0_weight, conv0_bias);
-
-//     // std::cout << "========================" << std::endl;
-//     // std::cout << "c1 shape" << std::endl;
-//     // c1->print_shape();
-//     // std::cout << "========================" << std::endl;
-
-//     // c1->reshape({128, 254, 254});
-//     // instancenorm2d(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-
-//     instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-
-//     // i1->reshape({128, 254, 254});
-
-//     // maxpool2d(i1, m1, 2, 2);
-
-//     maxpool2d_v2(i1, m1, 2, 2);
-//     // m1->reshape({128, 127, 127});
-
-//     relu(m1);
-
-//     // conv2d(m1, c2, conv1_weight, conv1_bias);
-//     conv2d_v2(m1, c2, conv1_weight, conv1_bias);
-
-//     // instancenorm2d(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
-//     instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
-
-//     // maxpool2d(i2, m2, 2, 2);
-//     maxpool2d_v2(i2, m2, 2, 2);
-
-//     relu(m2);
-//     // m2->reshape({256, 62, 62});
-
-//     // m2 {N, 256, 62, 62}
-//     // linear(m2, l1, linear1_weight, linear1_bias);
-//     linear_v2(m2, l1, linear1_weight, linear1_bias);
-//     // l1->reshape({256, 62, 128});
-
-//     relu(l1);
-
-//     // linear(l1, l2, linear2_weight, linear2_bias);
-//     linear_v2(l1, l2, linear2_weight, linear2_bias);
-
-//     l2->reshape({1, 1015808});
-//     // linear(l2, output, linear3_weight, linear3_bias);
-//     linear_v2(l2, output, linear3_weight, linear3_bias);
-
-//     memcpy(outputN + 2 * idx, output->buf, 2 * sizeof(float));
-//     // memcpy(outputN + 2 * idx, output->buf, N * 2 * sizeof(float));
-//   }
-// }
 
 // void model_forward(float *inputN, float *outputN)
 // {
@@ -395,22 +276,8 @@ static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   float *weight = weight_t->buf;
   float *bias = bias_t->buf;
 
-  // weight {128, 1, 3, 3} (K, C, kH, kW)
-
-  // int out_channel = weight_t->shape[0];
-  // int in_channel = weight_t->shape[1];
-
   int kH = weight_t->shape[2];
   int kW = weight_t->shape[3];
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "out_channel: " << out_channel << std::endl;
-  // std::cout << "in_channel: " << in_channel << std::endl;
-  // std::cout << "kH: " << kH << std::endl;
-  // std::cout << "kW: " << kW << std::endl;
-  // std::cout << "========================" << std::endl;
-
-  // int kH = weight_t->shape[0]
 
   int C_IN = weight_t->shape[1];  //=in_t->shape[0];
   int C_OUT = weight_t->shape[0]; //=out_t->shape[0];
@@ -422,16 +289,6 @@ static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   int H_OUT = H_IN - kH + 1; //=out_t->shape[1];
   int W_OUT = W_IN - kW + 1; //=out_t->shape[2];
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "N: " << N << std::endl;
-  // std::cout << "C_IN: " << C_IN << std::endl;
-  // std::cout << "C_OUT: " << C_OUT << std::endl;
-  // std::cout << "H_IN: " << H_IN << std::endl;
-  // std::cout << "W_IN: " << W_IN << std::endl;
-  // std::cout << "H_OUT: " << H_OUT << std::endl;
-  // std::cout << "W_OUT: " << W_OUT << std::endl;
-  // std::cout << "========================" << std::endl;
 
   for (int n = 0; n < N; n++)
   {
@@ -514,10 +371,6 @@ static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   float *out = out_t->buf;
   float *weight = weight_t->buf;
   float *bias = bias_t->buf;
-
-  // int C = in_t->shape[0]; //=out_t->shape[0];
-  // int H = in_t->shape[1]; //=out_t->shape[1];
-  // int W = in_t->shape[2]; //=out_t->shape[2];
 
   int N = in_t->shape[0]; //=out_t->shape[0];
   int C = in_t->shape[1]; //=out_t->shape[1];
@@ -612,148 +465,6 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
     }
   }
 }
-
-// __global__ void linear_kernel(float *output, float *input, float *weight, float *bias,
-//                               int batch, int in_f, int out_f)
-// {
-//   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-//   int output_numel = batch * out_f;
-//   if (tid >= output_numel)
-//     return;
-
-//   int k_idx = tid % out_f;
-//   int n_idx = tid / out_f;
-
-//   float sum = 0.0f;
-
-//   for (int i = 0; i < in_f; i++)
-//   {
-//     int input_index = n_idx * in_f + i;
-//     int weight_index = k_idx * in_f + i;
-//     sum += input[input_index] * weight[weight_index];
-//   }
-
-//   sum += bias[k_idx];
-//   output[tid] = sum;
-// }
-
-// static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-//                    Tensor *bias_t)
-// {
-//   float *cpu_in = in_t->buf;
-//   // float *out = out_t->buf;
-//   float *cpu_weight = weight_t->buf;
-//   float *cpu_bias = bias_t->buf;
-
-//   // input (N, C, H, W) -> (N, C * H * W)
-//   // weight (K, C * H * W)
-//   // bias (K)
-//   // output (N, K)
-
-//   // int batch = in_t->shape[0];
-//   // int C = in_t->shape[1];
-//   // int H = in_t->shape[2];
-//   // int W = in_t->shape[3];
-
-//   int batch = 1;
-//   int C = in_t->shape[0];
-//   int H = in_t->shape[1];
-//   int W = in_t->shape[2];
-
-//   std::cout << "========================" << std::endl;
-//   std::cout << "N: " << batch << std::endl;
-//   std::cout << "C: " << C << std::endl;
-//   std::cout << "H: " << H << std::endl;
-//   std::cout << "W: " << W << std::endl;
-//   std::cout << "========================" << std::endl;
-
-//   // int in_f = C * H * W;
-//   int in_f = weight_t->shape[0];
-//   int out_f = weight_t->shape[1];
-
-//   std::cout << "========================" << std::endl;
-//   std::cout << "weight_t->shape[0]: " << weight_t->shape[0] << std::endl;
-//   std::cout << "weight_t->shape[1]: " << weight_t->shape[1] << std::endl;
-//   std::cout << "========================" << std::endl;
-
-//   int in_numel = in_t->get_elem();
-//   int out_numel = out_t->get_elem();
-
-//   int weight_numel = weight_t->get_elem();
-//   int bias_numel = bias_t->get_elem();
-
-//   std::cout << "========================" << std::endl;
-//   // std::cout << "in_numel: " << in_numel << std::endl;
-//   // std::cout << "out_numel: " << out_numel << std::endl;
-//   // std::cout << "weight_numel: " << weight_numel << std::endl;
-//   // std::cout << "bias_numel: " << bias_numel << std::endl;
-
-//   std::cout << "========================" << std::endl;
-//   std::cout << "in_t->shape[0]: " << in_t->shape[0] << std::endl;
-//   std::cout << "in_t->shape[1]: " << in_t->shape[1] << std::endl;
-//   std::cout << "========================" << std::endl;
-
-//   std::cout << "in_f: " << in_f << std::endl;
-//   std::cout << "out_f: " << out_f << std::endl;
-//   std::cout << "========================" << std::endl;
-
-//   std::cout << "========================" << std::endl;
-//   std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
-//   std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
-//   std::cout << "========================" << std::endl;
-
-//   auto gpu_in = in_t->gpu_buf;
-//   CHECK_CUDA(cudaMalloc(&gpu_in, in_numel * sizeof(float)));
-//   CHECK_CUDA(cudaMemcpy(gpu_in, cpu_in, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-//   auto gpu_weight = weight_t->gpu_buf;
-//   CHECK_CUDA(cudaMalloc(&gpu_weight, weight_numel * sizeof(float)));
-//   CHECK_CUDA(cudaMemcpy(gpu_weight, cpu_weight, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-//   auto gpu_bias = bias_t->gpu_buf;
-//   CHECK_CUDA(cudaMalloc(&gpu_bias, bias_numel * sizeof(float)));
-//   CHECK_CUDA(cudaMemcpy(gpu_bias, cpu_bias, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-//   auto gpu_out = out_t->gpu_buf;
-//   CHECK_CUDA(cudaMalloc(&gpu_out, out_numel * sizeof(float)));
-//   // CHECK_CUDA(cudaMemcpy(gpu_out, inout, out_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-//   dim3 gridDim((out_numel + NUM_OF_THREADS - 1) / NUM_OF_THREADS);
-//   dim3 blockDim(NUM_OF_THREADS);
-
-//   linear_kernel<<<gridDim, blockDim>>>(gpu_out, gpu_in, gpu_weight, gpu_bias, batch, in_f, out_f);
-
-//   auto cpu_out = out_t->buf;
-//   CHECK_CUDA(cudaMemcpy(cpu_out, gpu_out, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-//   in_t->free_gpu_buf();
-//   weight_t->free_gpu_buf();
-//   bias_t->free_gpu_buf();
-//   out_t->free_gpu_buf();
-// }
-
-// int N = batch;
-// int H = input_height;
-// int W = input_width;
-// int C = in_channel;
-// int K = out_channel;
-// int L = C * H * W;
-
-// for (int n = 0; n < N; n++) {
-// 	for (int k = 0; k < K; k++) {
-// 		float sum = 0.0f;
-// 		for (int i = 0; i < L; i++) {
-// 			int input_index = n * L + i;
-// 			int weight_index = k * L + i;
-// 			float s = input[input_index] * weight[weight_index];
-// 			sum += s;
-// 		}
-// 		sum += bias[k];
-// 		int output_index = n * K + k;
-// 		output[output_index] = sum;
-
-// 	}
-// }
 
 static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                       Tensor *bias_t)
