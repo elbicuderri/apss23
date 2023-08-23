@@ -18,8 +18,8 @@ using namespace std;
 
 Tensor::Tensor(const vector<int> &shape_) {
   reshape(shape_);
-  CHECK_CUDA(cudaMallocHost((void **)&buf, n * sizeof(float)));
-  // buf = (float *)malloc(n * sizeof(float));
+  // CHECK_CUDA(cudaMallocHost((void **)&buf, n * sizeof(float)));
+  buf = (float *)malloc(n * sizeof(float));
 }
 
 Tensor::Tensor(float *data, const vector<int> &shape_) {

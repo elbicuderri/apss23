@@ -2,6 +2,7 @@
 #include <cstring>
 #include <iostream>
 #include <cassert>
+#include <float.h>
 
 #include "model.h"
 #include "util.h"
@@ -155,6 +156,8 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW);
 
 static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW);
 
+static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW);
+
 // InstanceNorm2D
 // https://pytorch.org/docs/stable/generated/torch.nn.InstanceNorm2d.html
 // size of in  = N * C * H * W
@@ -199,7 +202,9 @@ void model_forward(float *inputN, float *outputN)
 
   instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
-  maxpool2d_v2(i1, m1, 2, 2);
+  // maxpool2d_v2(i1, m1, 2, 2);
+
+  maxpool2d_gpu(i1, m1, 2, 2);
 
   relu(m1);
 
@@ -207,7 +212,9 @@ void model_forward(float *inputN, float *outputN)
 
   instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
-  maxpool2d_v2(i2, m2, 2, 2);
+  // maxpool2d_v2(i2, m2, 2, 2);
+
+  maxpool2d_gpu(i2, m2, 2, 2);
 
   relu(m2);
 
@@ -532,6 +539,101 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
       out[out_idx] = sum;
     }
   }
+}
+
+__global__ void maxpool2d_kernel(float *out, float *in, int N, int C, int H_IN, int W_IN, int kH, int kW)
+{
+
+  int H_OUT = H_IN / kH;
+  int W_OUT = W_IN / kW;
+
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  int output_numel = N * C * H_OUT * W_OUT;
+  if (tid >= output_numel)
+  {
+    return;
+  }
+
+  // w_out: output w-index
+  int w_out = tid % W_OUT;
+  int idx = tid / W_OUT;
+
+  // h_out: output h-index
+  int h_out = idx % H_OUT;
+  idx /= H_OUT;
+
+  // c: output channel-index
+  int c = idx % C;
+
+  // n: output batch-index
+  int n = idx / C;
+
+  // output(n, c, h_out, w_out)
+
+  // int first_in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH) * W_IN + (w_out * kW);
+  // float max_val = in[first_in_idx];
+
+  float max_val = -FLT_MAX;
+  for (int kh = 0; kh < kH; kh++)
+  {
+    for (int kw = 0; kw < kW; kw++)
+    {
+      int h_idx = h_out * kH + kh;
+      int w_idx = w_out * kW + kw;
+      if (h_idx < H_IN && w_idx < W_IN)
+      {
+        int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
+        float in_val = in[in_idx];
+
+        if (in_val > max_val)
+        {
+          max_val = in_val;
+        }
+      }
+    }
+  }
+
+  // int out_idx = n * C * H_OUT * W_OUT + c * H_OUT * W_OUT + h_out * W_OUT + w_out;
+  out[tid] = max_val;
+}
+
+static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
+{
+  std::cout << "maxpool2d on GPU!!!" << std::endl;
+
+  float *in_cpu = in_t->buf;
+  float *out_cpu = out_t->buf;
+
+  int N = in_t->shape[0];
+  int C = in_t->shape[1];
+
+  int H_IN = in_t->shape[2];
+  int W_IN = in_t->shape[3];
+
+  int H_OUT = H_IN / kH; // =out_t->shape[2];
+  int W_OUT = W_IN / kW; // =out_t->shape[3];
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+
+  auto in_gpu = in_t->gpu_buf;
+  auto out_gpu = out_t->gpu_buf;
+
+  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+
+  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  dim3 blockDim(THREADS_PER_BLOCK);
+
+  maxpool2d_kernel<<<gridDim, blockDim>>>(out_gpu, in_gpu, N, C, H_IN, W_IN, kH, kW);
+
+  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  in_t->free_gpu_buf();
+  out_t->free_gpu_buf();
 }
 
 static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW)
