@@ -5,6 +5,8 @@
 #include <map>
 #include <unistd.h>
 #include <vector>
+#include <cuda_runtime.h>
+
 
 using namespace std;
 
@@ -67,7 +69,9 @@ void *read_binary(const char *filename, size_t *size) {
   fseek(f, 0, SEEK_END);
   size_ = ftell(f);
   rewind(f);
-  void *buf = malloc(size_);
+  float* buf;
+  
+  cudaMallocHost((void**)&buf, size_);
   size_t ret = fread(buf, 1, size_, f);
   if (ret == 0) {
     fprintf(stderr, "[ERROR] Cannot read file \'%s\'\n", filename);
