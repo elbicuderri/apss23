@@ -27,7 +27,8 @@ Tensor::Tensor(float *data, const vector<int> &shape_) {
   // buf = (float *)malloc(n * sizeof(float));
   CHECK_CUDA(cudaMallocHost((void **)&buf, n * sizeof(float)));
   // CHECK_CUDA(cudaMemcpy(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
-  CHECK_CUDA(cudaMemcpyAsync(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
+  CHECK_CUDA(
+      cudaMemcpyAsync(buf, data, n * sizeof(float), cudaMemcpyHostToHost));
   // memcpy(buf, data, get_elem() * sizeof(float));
 }
 
