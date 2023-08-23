@@ -559,27 +559,30 @@ static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW)
       {
         for (int w_out = 0; w_out < W_OUT; w_out++)
         {
-          int first_in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH) * H_IN + (w_out * kW);
-          // std::cout << "first_in_idx: " << first_in_idx << std::endl;
+          int first_in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH) * W_IN + (w_out * kW);
           assert(first_in_idx < in_numel);
+
           float max_val = in[first_in_idx];
           for (int kh = 0; kh < kH; kh++)
           {
             for (int kw = 0; kw < kW; kw++)
             {
-              int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH + kh) * H_IN + (w_out * kW + kw);
-              // std::cout << "in_idx: " << in_idx << std::endl;
-              assert(in_idx < in_numel);
-
-              float in_val = in[in_idx];
-              if (in_val > max_val)
+              int h_idx = h_out * kH + kh;
+              int w_idx = w_out * kW + kw;
+              if (h_idx < H_IN && w_idx < W_IN)
               {
-                max_val = in_val;
+                int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
+                assert(in_idx < in_numel);
+
+                float in_val = in[in_idx];
+                if (in_val > max_val)
+                {
+                  max_val = in_val;
+                }
               }
             }
           }
           int out_idx = n * C * H_OUT * W_OUT + c * H_OUT * W_OUT + h_out * W_OUT + w_out;
-          // std::cout << "out_idx: " << out_idx << std::endl;
           assert(out_idx < out_numel);
 
           out[out_idx] = max_val;
