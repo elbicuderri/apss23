@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <cuda_runtime.h>
 
 #include "model.h"
 #include "util.h"
@@ -11,7 +12,7 @@ int S, W, V;
 
 char parameter_fname[100] = "./data/weights.bin";
 char input_fname[100] = "./data/bins/input1N.bin";
-char answer_fname[100] = "./data/bins/output1N.bin";
+char answer_fname[100] = "./data/bins/answer1N.bin";
 char output_fname[100] = "./output.bin";
 
 int main(int argc, char **argv) {
@@ -35,7 +36,7 @@ int main(int argc, char **argv) {
   N = sz >> 16;
 
   // Define output Tensor
-  output = (float *)malloc(sizeof(float) * N * 2);
+  cudaMallocHost((void**)&output,sizeof(float) * N * 2);
 
   // Initalize model
   initialize_model(parameter_fname);
