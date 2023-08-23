@@ -38,7 +38,9 @@ struct Tensor
   void reshape(const vector<int> &shape_);
   void free_gpu_buf()
   {
-    CHECK_CUDA(cudaFree(gpu_buf));
+    // CHECK_CUDA(cudaFree(gpu_buf));
+    CHECK_CUDA(cudaFreeAsync(gpu_buf, 0));
+    // cudaFreeAsync
     gpu_buf = nullptr;
   }
 

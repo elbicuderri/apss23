@@ -148,6 +148,9 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                       Tensor *bias_t);
 
+static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                       Tensor *bias_t);
+
 // MaxPool2d
 // https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
 // size of in  = N * H_IN * W_IN
@@ -203,7 +206,8 @@ void model_forward(float *inputN, float *outputN)
                         N * 256 * 256 * sizeof(float),
                         cudaMemcpyHostToHost));
 
-  conv2d_v2(input, c1, conv0_weight, conv0_bias);
+  // conv2d_v2(input, c1, conv0_weight, conv0_bias);
+  conv2d_gpu(input, c1, conv0_weight, conv0_bias);
 
   instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
@@ -213,7 +217,8 @@ void model_forward(float *inputN, float *outputN)
   // relu(m1);
   relu_gpu(m1);
 
-  conv2d_v2(m1, c2, conv1_weight, conv1_bias);
+  // conv2d_v2(m1, c2, conv1_weight, conv1_bias);
+  conv2d_gpu(m1, c2, conv1_weight, conv1_bias);
 
   instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
@@ -283,6 +288,126 @@ void model_forward(float *inputN, float *outputN)
 //     memcpy(outputN + 2 * idx, output->buf, 2 * sizeof(float));
 //   }
 // }
+
+__global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
+                              int N, int C, int K, int H, int W, int kH, int kW)
+{
+
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  int oH = H - kH + 1;
+  int oW = W - kW + 1;
+
+  int output_numel = N * K * oH * oW;
+  if (tid >= output_numel)
+  {
+    return;
+  }
+
+  // input (N, C, H, W)
+  // weight (K, C, kH, kW)
+  // bias (K)
+  // output(N, K, oH, oW)
+
+  // n * K * oH * oW + k * oH * oW + oh * oW + ow
+
+  // ow: output w-index
+  int ow = tid % oW;
+  int idx = tid / oW; // n * K * oH + k * oH + oh
+
+  // oh: output h-index
+  int oh = idx % oH;
+  idx = idx / oH; // n * K + k
+
+  // k: output channel-index
+  int k = idx % K;
+
+  // n: output batch-index
+  int n = idx / K;
+
+  float sum = bias[k];
+  for (int c = 0; c < C; c++)
+  {
+    for (int kh = 0; kh < kH; kh++)
+    {
+      for (int kw = 0; kw < kW; kw++)
+      {
+        int in_h_idx = oh + kh;
+        int in_w_idx = ow + kw;
+
+        if (in_h_idx >= 0 && in_h_idx < H && in_w_idx >= 0 && in_w_idx < W)
+        {
+          int in_idx = n * C * H * W + c * H * W + in_h_idx * W + in_w_idx;
+          int weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
+          sum += in[in_idx] * weight[weight_idx];
+        }
+      }
+    }
+  }
+  // int out_idx = n * C_OUT * H_OUT * W_OUT + c_out * H_OUT * W_OUT + h_out * W_OUT + w_out;
+  out[tid] = sum;
+}
+
+static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                       Tensor *bias_t)
+{
+  std::cout << "conv2d on GPU!!!" << std::endl;
+
+  // input (N, C, H, W)
+  // weight (K, C, kH, kW)
+  // bias (K)
+  // output(N, K, oH, oW)
+
+  int K = weight_t->shape[0];
+  int C = weight_t->shape[1];
+  int kH = weight_t->shape[2];
+  int kW = weight_t->shape[3];
+
+  int H = in_t->shape[2];
+  int W = in_t->shape[3];
+
+  int oH = H - kH + 1;
+  int oW = W - kW + 1;
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+  int weight_numel = weight_t->get_elem();
+  int bias_numel = bias_t->get_elem();
+
+  float *in_cpu = in_t->buf;
+  float *out_cpu = out_t->buf;
+  float *weight_cpu = weight_t->buf;
+  float *bias_cpu = bias_t->buf;
+
+  auto in_gpu = in_t->gpu_buf;
+  auto out_gpu = out_t->gpu_buf;
+  auto weight_gpu = weight_t->gpu_buf;
+  auto bias_gpu = bias_t->gpu_buf;
+
+  CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
+
+  //////
+  CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
+  CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
+
+  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  dim3 blockDim(THREADS_PER_BLOCK);
+
+  conv2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, K, H, W, kH, kW);
+
+  CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  in_t->free_gpu_buf();
+  out_t->free_gpu_buf();
+  weight_t->free_gpu_buf();
+  bias_t->free_gpu_buf();
+}
 
 static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                       Tensor *bias_t)
@@ -693,7 +818,7 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
     {
       int h_idx = h_out * kH + kh;
       int w_idx = w_out * kW + kw;
-      if (h_idx < H_IN && w_idx < W_IN)
+      if (h_idx >= 0 && h_idx < H_IN && w_idx >= 0 && w_idx < W_IN)
       {
         int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
         float in_val = in[in_idx];
