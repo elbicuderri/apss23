@@ -212,8 +212,8 @@ void model_forward(float *inputN, float *outputN)
   // conv2d_v2(input, c1, conv0_weight, conv0_bias);
   conv2d_gpu(input, c1, conv0_weight, conv0_bias);
 
-  // instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-  instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+  instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+  // instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
   // maxpool2d_v2(i1, m1, 2, 2);
   maxpool2d_gpu(i1, m1, 2, 2);
@@ -509,80 +509,145 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   }
 }
 
-__global__ void instancenorm2d_kernel(float *in, float *out, float *weight, float *bias,
+__global__ void instancenorm2d_kernel(const float *in, float *out, const float *weight, const float *bias,
                                       int N, int C, int H, int W)
 {
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   int output_numel = N * C * H * W;
+  // printf("tid: %d\n", tid);
+  // printf("N: %d\n", N);
+  // printf("C: %d\n", C);
+  // printf("H: %d\n", H);
+  // printf("W: %d\n", W);
+  // printf("output_numel: %d\n", output_numel);
+
   if (tid >= output_numel)
   {
+    // printf("tid >= output_numel\n");
+    // printf("tid: %d\n", tid);
+    // printf("output_numel: %d\n", output_numel);
     return;
   }
 
-  // input (N, C, H, W)
-  // weight (C)
-  // bias (C)
-  // output(N, C, H, W)
+  // // /////////////////////////////////////////////////////
+  // // input (N, C, H, W)
+  // // weight (C)
+  // // bias (C)
+  // // output(N, C, H, W)
 
-  // n * C * H * W + c * H * W + oh * W + ow
+  // // n * C * H * W + c * H * W + oh * W + ow
 
-  // ow: output w-index
-  // int ow = tid % W;
-  int idx = tid / W; // n * C * H + c * H + oh
+  // // ow: output w-index
+  // // int ow = tid % W;
+  // int idx = tid / W; // n * C * H + c * H + oh
 
-  // oh: output h-index
-  int oh = idx % H;
-  idx = idx / oh; // n * C + c
+  // // oh: output h-index
+  // int oh = idx % H;
+  // idx = idx / oh; // n * C + c
 
-  // c: output channel-index
-  int c = idx % C;
+  // // c: output channel-index
+  // int c = idx % C;
 
-  // n: output batch-index
-  int n = idx / C;
+  // // n: output batch-index
+  // int n = idx / C;
 
-  // /////////////////////////////////////////////////////
-  float mean = 0.0f, var = 0.0f;
+  // float mean = 0.0f, var = 0.0f;
 
-  float m = 0.0f, v = 0.0f;
+  // // float m = 0.0f, v = 0.0f;
 
-  // Caculate mean
-  for (int h = 0; h < H; h++)
-  {
-    for (int w = 0; w < W; w++)
-    {
-      int idx1 = n * C * H * W + c * H * W + h * W + w;
-      mean += in[idx1];
-      m += in[idx1];
-    }
-  }
-  mean /= H * W;
-  __syncthreads();
-
-  // Caculate Variance
-  for (int hh = 0; hh < H; hh++)
-  {
-    for (int ww = 0; ww < W; ww++)
-    {
-      int idx2 = n * C * H * W + c * H * W + hh * W + ww;
-      var += (in[idx2] - mean) * (in[idx2] - mean);
-    }
-  }
-  var /= H * W;
-  __syncthreads();
-
+  // // Caculate mean
   // for (int h = 0; h < H; h++)
   // {
   //   for (int w = 0; w < W; w++)
   //   {
-  //     int out_idx = n * C * H * W + c * H * W + h * W + w;
-  //     int in_idx = n * C * H * W + c * H * W + h * W + w;
-  //     out[out_idx] = (in[in_idx] - mean) / sqrt(var + 1e-5) * weight[c] + bias[c];
+  //     int idx1 = n * C * H * W + c * H * W + h * W + w;
+  //     // if (idx1 >= output_numel) {
+  //     //   printf("idx1 >= output_numel\n");
+  //     //   printf("idx1: %d\n", idx1);
+  //     //   printf("output_numel: %d\n", output_numel);
+  //     // }
+  //     if (idx1 < output_numel)
+  //     {
+  //       mean += in[idx1];
+  //     }
+  //     __syncthreads();
+  //     // m += in[idx1];
   //   }
+  //   __syncthreads();
   // }
+  // mean /= H * W;
+  // __syncthreads();
+  // // __syncthreads();
 
-  out[tid] = ((in[tid] - mean) / sqrt(var + 1e-5)) * weight[c] + bias[c];
+  // // Caculate Variance
+  // for (int hh = 0; hh < H; hh++)
+  // {
+  //   for (int ww = 0; ww < W; ww++)
+  //   {
+  //     int idx2 = n * C * H * W + c * H * W + hh * W + ww;
+  //     // if (idx2 >= output_numel) {
+  //     //   printf("idx2 >= output_numel\n");
+  //     //   printf("idx2: %d\n", idx2);
+  //     //   printf("output_numel: %d\n", output_numel);
+  //     // }
+  //     if (idx2 < output_numel)
+  //     {
+  //       var += (in[idx2] - mean) * (in[idx2] - mean);
+  //     }
+  //     __syncthreads();
+  //   }
+  //   __syncthreads();
+  // }
+  // var /= H * W;
+  // __syncthreads();
+  // 
+  // if (tid < output_numel)
+  // {
+  //   out[tid] = ((in[tid] - mean) / sqrt(var + 1e-5)) * weight[c] + bias[c];
+  // }
+  // // /////////////////////////////////////////////////////
+
+  for (int n = 0; n < N; n++)
+  {
+    for (int c = 0; c < C; c++)
+    {
+      float e = 0.0f, v = 0.0f;
+
+      // Caculate mean
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          e += in[in_idx];
+        }
+      }
+      e /= H * W;
+
+      // Caculate Variance
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          v += (in[in_idx] - e) * (in[in_idx] - e);
+        }
+      }
+      v /= H * W;
+
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int out_idx = n * C * H * W + c * H * W + h * W + w;
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          out[out_idx] = (in[in_idx] - e) / sqrt(v + 1e-5) * weight[c] + bias[c];
+        }
+      }
+    }
+  }
 }
 
 static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -656,9 +721,9 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
+  // instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
 
-  // instancenorm2d_kernel<<<1, 1>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
+  instancenorm2d_kernel<<<1, 1>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
 
   CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
 
