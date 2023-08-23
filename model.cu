@@ -6,7 +6,7 @@
 #include "model.h"
 #include "util.h"
 
-#define NUM_OF_THREADS 256
+#define THREADS_PER_BLOCK 256
 
 #define CHECK_CUDA(call)                                                 \
   do                                                                     \
@@ -474,33 +474,13 @@ static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   float *weight = weight_t->buf;
   float *bias = bias_t->buf;
 
-  int K = weight_t->shape[0]; // in_t의 마지막 차원
-  int N = weight_t->shape[1]; // out_t의 마지막 차원
-
-  // int N = in_t->get_elem() / H_IN; //=out_t->get_elem()/H_OUT
+  // (B, M, K) @ (K, N) -> (B, M, N)
 
   int B = in_t->shape[0];
-  // int S1 = in_t->shape[1];
-  // int S2 = in_t->shape[2];
   int M = in_t->shape[1];
-  // int K = in_t->shape[3];
-  // assert(in_t->shape[3] == K);
 
-  // int M = S1 * S2;
-
-  std::cout << "========================" << std::endl;
-  std::cout << "linear_v2" << std::endl;
-  std::cout << "B: " << B << std::endl;
-  std::cout << "M: " << M << std::endl;
-  std::cout << "N: " << N << std::endl;
-  std::cout << "K: " << K << std::endl;
-
-  // std::cout << "S1: " << S1 << std::endl;
-  // std::cout << "S2: " << S2 << std::endl;
-
-  std::cout << "========================" << std::endl;
-
-  // (B, M, K) @ (K, N) -> (B, M, N)
+  int K = weight_t->shape[0]; // in_t의 마지막 차원
+  int N = weight_t->shape[1]; // out_t의 마지막 차원
 
   for (int b = 0; b < B; b++)
   {
@@ -537,13 +517,6 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   int M = in_t->get_elem() / K; //=out_t->get_elem()/N
 
-  std::cout << "========================" << std::endl;
-  std::cout << "linear" << std::endl;
-  std::cout << "M: " << M << std::endl;
-  std::cout << "N: " << N << std::endl;
-  std::cout << "K: " << K << std::endl;
-  std::cout << "========================" << std::endl;
-
   for (int m = 0; m < M; m++)
   {
     for (int n = 0; n < N; n++)
@@ -577,17 +550,6 @@ static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW)
 
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "N: " << N << std::endl;
-  // std::cout << "C: " << C << std::endl;
-  // std::cout << "H_IN: " << H_IN << std::endl;
-  // std::cout << "W_IN: " << W_IN << std::endl;
-  // std::cout << "H_OUT: " << H_OUT << std::endl;
-  // std::cout << "W_OUT: " << W_OUT << std::endl;
-  // std::cout << "in_numel: " << in_numel << std::endl;
-  // std::cout << "out_numel: " << out_numel << std::endl;
-  // std::cout << "========================" << std::endl;
 
   for (int n = 0; n < N; n++)
   {
@@ -689,8 +651,8 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
 //   CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
 //   CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
 
-//   dim3 gridDim((N + NUM_OF_THREADS - 1) / NUM_OF_THREADS);
-//   dim3 blockDim(NUM_OF_THREADS);
+//   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+//   dim3 blockDim(THREADS_PER_BLOCK);
 
 //   relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
 
