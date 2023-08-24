@@ -125,17 +125,8 @@ void initialize_model(const char *parameter_fname)
   l2 = new Tensor({batch, 1, 256 * 62 * 64});
 
   output = new Tensor({batch, 1, 2});
-
-  std::cout << "========================" << std::endl;
-  std::cout << "initialize_model" << std::endl;
-  std::cout << "N: " << N << std::endl;
-  std::cout << "batch: " << batch << std::endl;
-  std::cout << "parameter_fname" << std::endl;
-  std::cout << parameter_fname << std::endl;
-  std::cout << "========================" << std::endl;
-
-  // CHECK_CUDA(cudaDeviceSynchronize());
 }
+
 // Conv2D
 // https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
 // Size of in  = N * C_IN * H_IN * W_IN
@@ -157,8 +148,8 @@ static void maxpool2d_relu(Tensor *in_t, Tensor *out_t, int kH, int kW);
 // size of out = N * C * H * W
 // weight : C
 // bias : C
-static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                               Tensor *bias_t);
+static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                           Tensor *bias_t);
 
 // Linear
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
@@ -179,38 +170,17 @@ static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
 void model_forward(float *inputN, float *outputN)
 {
-  printf("model_forward\n");
-  printf("N: %d\n", N);
-
-  // int max_batch_per_step = 128;
-
   int steps = (N + max_batch_per_step - 1) / max_batch_per_step;
-  int nn = N % max_batch_per_step;
-  int last_batch = nn == 0 ? max_batch_per_step : nn;
-
-  std::cout << "steps: " << steps << std::endl;
-  std::cout << "max_batch_per_step: " << max_batch_per_step << std::endl;
-  std::cout << "last_batch: " << last_batch << std::endl;
+  int last_batch = max(max_batch_per_step, N % max_batch_per_step);
 
   for (int idx = 0; idx < steps; idx++)
   {
-    // memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
 
     int micro_batch = max_batch_per_step;
     if (idx == (steps - 1))
     {
       micro_batch = last_batch;
     }
-
-    std::cout << "========================" << std::endl;
-    std::cout << "step idx: " << idx << std::endl;
-    std::cout << "micro_batch: " << micro_batch << std::endl;
-
-    // // For test
-    // CHECK_CUDA(cudaMemcpy(input->gpu_buf,
-    //                       inputN,
-    //                       N * 256 * 256 * sizeof(float),
-    //                       cudaMemcpyHostToDevice));
 
     if (steps == 1)
     {
@@ -227,20 +197,15 @@ void model_forward(float *inputN, float *outputN)
                             cudaMemcpyHostToDevice));
     }
 
-    // CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * max_batch_per_step * idx,
-    //                       inputN + 256 * 256 * max_batch_per_step * idx,
-    //                       micro_batch * 256 * 256 * sizeof(float),
-    //                       cudaMemcpyHostToDevice));
-
     conv2d(input, c1, conv0_weight, conv0_bias);
 
-    instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+    instancenorm2d(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
     maxpool2d_relu(i1, m1, 2, 2);
 
     conv2d(m1, c2, conv1_weight, conv1_bias);
 
-    instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+    instancenorm2d(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
     maxpool2d_relu(i2, m2, 2, 2);
 
@@ -250,38 +215,16 @@ void model_forward(float *inputN, float *outputN)
 
     linear(l2, output, linear3_weight, linear3_bias);
 
-    // CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
-    //                       output->buf + 2 * max_batch_per_step * idx,
-    //                       micro_batch * 2 * sizeof(float),
-    //                       cudaMemcpyHostToHost));
-
-    std::cout << "cudaMemcpy output start" << std::endl;
-
     CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
                           output->gpu_buf,
                           micro_batch * 2 * sizeof(float),
                           cudaMemcpyDeviceToHost));
-
-    // CHECK_CUDA(cudaMemcpy(outputN,
-    //                       output->gpu_buf,
-    //                       N * 2 * sizeof(float),
-    //                       cudaMemcpyDeviceToHost));
-
-    std::cout << "cudaMemcpy output end" << std::endl;
   }
-
-  std::cout << "input output free start" << std::endl;
-
-  input->free_cpu_buf();
-  output->free_cpu_buf();
-
-  std::cout << "input output free end" << std::endl;
 }
 
 __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
                               int N, int C, int K, int H, int W, int kH, int kW)
 {
-
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   int oH = H - kH + 1;
@@ -341,13 +284,12 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
 static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                    Tensor *bias_t)
 {
-  std::cout << "conv2d on GPU!!!" << std::endl;
-  clock_t start_time2 = clock();
-
   // input (N, C, H, W)
   // weight (K, C, kH, kW)
   // bias (K)
   // output(N, K, oH, oW)
+
+  int N = in_t->shape[0];
 
   int K = weight_t->shape[0];
   int C = weight_t->shape[1];
@@ -357,10 +299,7 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int H = in_t->shape[2];
   int W = in_t->shape[3];
 
-  int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
@@ -370,22 +309,7 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  clock_t start_time = clock();
-
   conv2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, K, H, W, kH, kW);
-
-  CHECK_CUDA(cudaDeviceSynchronize());
-
-  // Code to be timed
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  clock_t end_time2 = clock();
-
-  double total_conv2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_conv2d_time: %.10f seconds\n", total_conv2d_time);
 }
 
 __global__ void instancenorm2d_kernel(const float *in, float *out,
@@ -396,19 +320,6 @@ __global__ void instancenorm2d_kernel(const float *in, float *out,
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
-  int output_numel = N * C * H * W;
-  if (tid >= output_numel)
-  {
-    return;
-  }
-
-  // input (N, C, H, W)
-  // weight (C)
-  // bias (C)
-  // output(N, C, H, W)
-  // mean (N, C)
-  // var (N, C)
-
   // int tid = n * C * H * W + c * H * W + h * W + w;
   // int w = tid % W;
   int idx = tid / W; // n * C * H + c * H + h
@@ -417,6 +328,11 @@ __global__ void instancenorm2d_kernel(const float *in, float *out,
   int c = idx % C;
   int n = idx / C;
 
+  if (n >= N)
+  {
+    return;
+  }
+
   int mean_var_idx = n * C + c;
   float m = mean[mean_var_idx];
   float v = var[mean_var_idx];
@@ -424,17 +340,11 @@ __global__ void instancenorm2d_kernel(const float *in, float *out,
   out[tid] = (((in[tid] - m) / sqrt(v + 1e-5)) * weight[c]) + bias[c];
 }
 
-__global__ void compute_mean_var_kernel(const float *in, float *mean, float *var,
+__global__ void compute_mean_var_kernel(const float *in, float *mean_var,
                                         int N, int C, int H, int W)
 {
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  int output_numel = N * C;
-  if (tid >= output_numel)
-  {
-    return;
-  }
 
   // input (N, C, H, W)
   // mean (N, C)
@@ -444,8 +354,15 @@ __global__ void compute_mean_var_kernel(const float *in, float *mean, float *var
   int n = tid / C;
   int c = tid % C;
 
+  if (n >= N)
+  {
+    return;
+  }
+
   float e = 0.0f;
   float v = 0.0f;
+
+  int NC = N * C;
 
   // Caculate mean
   for (int h = 0; h < H; h++)
@@ -458,8 +375,8 @@ __global__ void compute_mean_var_kernel(const float *in, float *mean, float *var
   }
   e /= H * W;
 
-  int mv_idx = n * C + c;
-  mean[mv_idx] = e;
+  int mean_idx = n * C + c;
+  mean_var[mean_idx] = e;
 
   // Caculate Variance
   for (int h = 0; h < H; h++)
@@ -471,16 +388,21 @@ __global__ void compute_mean_var_kernel(const float *in, float *mean, float *var
     }
   }
   v /= H * W;
-  var[mv_idx] = v;
+  int var_index = NC + mean_idx;
+  mean_var[var_index] = v;
 }
 
-static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                               Tensor *bias_t)
+static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                           Tensor *bias_t)
 {
-  int in_numel = in_t->get_elem();
+  // input (N, C, H, W)
+  // weight (C)
+  // bias (C)
+  // output(N, C, H, W)
+  // mean (N, C)
+  // var (N, C)
+
   int out_numel = out_t->get_elem();
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
@@ -492,24 +414,23 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   const int H = in_t->shape[2]; //=out_t->shape[2];
   const int W = in_t->shape[3]; //=out_t->shape[3];
 
-  float *mean_gpu;
-  float *var_gpu;
-
-  CHECK_CUDA(cudaMalloc((void **)&mean_gpu, N * C * sizeof(float)));
-  CHECK_CUDA(cudaMalloc((void **)&var_gpu, N * C * sizeof(float)));
+  float *mean_var_gpu;
+  CHECK_CUDA(cudaMalloc((void **)&mean_var_gpu, 2 * N * C * sizeof(float)));
 
   dim3 gridDim_mv(((N * C) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim_mv(THREADS_PER_BLOCK);
 
-  compute_mean_var_kernel<<<gridDim_mv, blockDim_mv>>>(in_gpu, mean_gpu, var_gpu, N, C, H, W);
+  compute_mean_var_kernel<<<gridDim_mv, blockDim_mv>>>(in_gpu, mean_var_gpu, N, C, H, W);
 
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
+  float *mean_gpu = mean_var_gpu;
+  float *var_gpu = mean_var_gpu + N * C;
+
   instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
 
-  // CHECK_CUDA(cudaFree(mean_gpu));
-  // CHECK_CUDA(cudaFree(var_gpu));
+  CHECK_CUDA(cudaFree(mean_var_gpu));
 }
 
 __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
@@ -517,12 +438,6 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
 {
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  int output_numel = B * M * N;
-  if (tid >= output_numel)
-  {
-    return;
-  }
 
   // input (B, M, K)
   // weight (N, K)
@@ -538,6 +453,11 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
 
   // b: output batch-index
   int b = idx / M;
+
+  if (b >= B)
+  {
+    return;
+  }
 
   // float sum = bias[n];
   float sum = 0.0f;
@@ -569,15 +489,10 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int K = weight_t->shape[0];
   int N = weight_t->shape[1];
 
-  int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
-
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
-
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
@@ -596,15 +511,10 @@ static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int K = weight_t->shape[0];
   int N = weight_t->shape[1];
 
-  int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
-
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
-
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
@@ -616,17 +526,10 @@ static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
 __global__ void maxpool2d_relu_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
 {
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   int H_OUT = H_IN / kH;
   int W_OUT = W_IN / kW;
-
-  int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  int output_numel = N * C * H_OUT * W_OUT;
-  if (tid >= output_numel)
-  {
-    return;
-  }
 
   // w_out: output w-index
   int w_out = tid % W_OUT;
@@ -641,6 +544,11 @@ __global__ void maxpool2d_relu_kernel(float *in, float *out, int N, int C, int H
 
   // n: output batch-index
   int n = idx / C;
+
+  if (n > N)
+  {
+    return;
+  }
 
   // float max_val = -FLT_MAX;
   float max_val = 0.0f;
@@ -674,7 +582,6 @@ static void maxpool2d_relu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   int H_IN = in_t->shape[2];
   int W_IN = in_t->shape[3];
 
-  int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
   auto in_gpu = in_t->gpu_buf;

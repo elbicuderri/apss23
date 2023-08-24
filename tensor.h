@@ -43,7 +43,6 @@ struct Tensor
       return;
     }
     CHECK_CUDA(cudaFree(gpu_buf));
-    // CHECK_CUDA(cudaFreeAsync(gpu_buf, 0));
     gpu_buf = nullptr;
   }
   void free_cpu_buf()
