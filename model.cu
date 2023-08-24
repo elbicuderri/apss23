@@ -101,15 +101,9 @@ void initialize_model(const char *parameter_fname)
   buf += 2;
 
   int batch = N;
-
-  if (N <= max_batch_per_step)
-  {
-    std::cout << "N <= max_batch_per_step" << std::endl;
-  }
-  else
+  if (N > max_batch_per_step)
   {
     batch = 256;
-    std::cout << "N > max_batch_per_step" << std::endl;
   }
 
   input = new Tensor({batch, 1, 256, 256});
@@ -218,9 +212,6 @@ void model_forward(float *inputN, float *outputN)
     //                       N * 256 * 256 * sizeof(float),
     //                       cudaMemcpyHostToDevice));
 
-    // // For test
-    // float *batch_input = nullptr;
-
     if (steps == 1)
     {
       CHECK_CUDA(cudaMemcpy(input->gpu_buf,
@@ -296,12 +287,6 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
   int oH = H - kH + 1;
   int oW = W - kW + 1;
 
-  int output_numel = N * K * oH * oW;
-  if (tid >= output_numel)
-  {
-    return;
-  }
-
   // input (N, C, H, W)
   // weight (K, C, kH, kW)
   // bias (K)
@@ -322,6 +307,11 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
   // n: output batch-index
   int n = idx / K;
 
+  if (n >= N)
+  {
+    return;
+  }
+
   float sum = bias[k];
   for (int c = 0; c < C; c++)
   {
@@ -332,16 +322,20 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
         int in_h_idx = oh + kh;
         int in_w_idx = ow + kw;
 
-        if (in_h_idx >= 0 && in_h_idx < H && in_w_idx >= 0 && in_w_idx < W)
-        {
-          int in_idx = n * C * H * W + c * H * W + in_h_idx * W + in_w_idx;
-          int weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
-          sum += in[in_idx] * weight[weight_idx];
-        }
+        int in_idx = n * C * H * W + c * H * W + in_h_idx * W + in_w_idx;
+        int weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
+        sum += in[in_idx] * weight[weight_idx];
       }
     }
   }
   out[tid] = sum;
+
+  // if (in_h_idx >= 0 && in_h_idx < H && in_w_idx >= 0 && in_w_idx < W)
+  // {
+  //   int in_idx = n * C * H * W + c * H * W + in_h_idx * W + in_w_idx;
+  //   int weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
+  //   sum += in[in_idx] * weight[weight_idx];
+  // }
 }
 
 static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -380,7 +374,7 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   conv2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, K, H, W, kH, kW);
 
-  // CHECK_CUDA(cudaDeviceSynchronize());
+  CHECK_CUDA(cudaDeviceSynchronize());
 
   // Code to be timed
   clock_t end_time = clock();
