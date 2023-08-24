@@ -139,7 +139,7 @@ void initialize_model(const char *parameter_fname)
   std::cout << parameter_fname << std::endl;
   std::cout << "========================" << std::endl;
 
-  CHECK_CUDA(cudaDeviceSynchronize());
+  // CHECK_CUDA(cudaDeviceSynchronize());
 }
 // Conv2D
 // https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
@@ -353,18 +353,10 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int H = in_t->shape[2];
   int W = in_t->shape[3];
 
-  int oH = H - kH + 1;
-  int oW = W - kW + 1;
-
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
-
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
@@ -378,7 +370,7 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   conv2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, K, H, W, kH, kW);
 
-  CHECK_CUDA(cudaDeviceSynchronize());
+  // CHECK_CUDA(cudaDeviceSynchronize());
 
   // Code to be timed
   clock_t end_time = clock();
@@ -481,19 +473,10 @@ __global__ void compute_mean_var_kernel(const float *in, float *mean, float *var
 static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                                Tensor *bias_t)
 {
-  std::cout << "instancenorm2d on GPU and CPU!!!" << std::endl;
-
-  clock_t start_time = clock();
-
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
-
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
 
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
@@ -504,11 +487,6 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   const int C = in_t->shape[1]; //=out_t->shape[1];
   const int H = in_t->shape[2]; //=out_t->shape[2];
   const int W = in_t->shape[3]; //=out_t->shape[3];
-
-  // input (N, C, H, W)
-  // weight (C)
-  // bias (C)
-  // output(N, C, H, W)
 
   float *mean_gpu;
   float *var_gpu;
@@ -521,27 +499,10 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   compute_mean_var_kernel<<<gridDim_mv, blockDim_mv>>>(in_gpu, mean_gpu, var_gpu, N, C, H, W);
 
-  clock_t end_time3 = clock();
-
-  double compute_mean_var_time = (double)(end_time3 - start_time) / CLOCKS_PER_SEC;
-  printf("compute_mean_var_time: %.10f seconds\n", compute_mean_var_time);
-
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
-
-  CHECK_CUDA(cudaDeviceSynchronize());
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  clock_t end_time2 = clock();
-
-  double total_instancenorm2d_time = (double)(end_time2 - start_time) / CLOCKS_PER_SEC;
-  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
 
   CHECK_CUDA(cudaFree(mean_gpu));
   CHECK_CUDA(cudaFree(var_gpu));
@@ -587,15 +548,6 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
 static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                    Tensor *bias_t)
 {
-  std::cout << "linear on GPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  // input (B, M, K)
-  // weight (N, K)
-  // bias (N)
-  // output(B, M, N)
-
   int B = in_t->shape[0];
   int M = in_t->shape[1];
 
@@ -605,17 +557,11 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   int in_numel = in_t->get_elem();
   int out_numel = out_t->get_elem();
 
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
 
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
-
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
 
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
@@ -623,21 +569,7 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  clock_t start_time = clock();
-
   linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K);
-
-  CHECK_CUDA(cudaDeviceSynchronize());
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  clock_t end_time2 = clock();
-
-  double total_linear_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_linear_time: %.10f seconds\n", total_linear_time);
 }
 
 __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
@@ -693,13 +625,6 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
 
 static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
 {
-  std::cout << "maxpool2d on GPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-
   int N = in_t->shape[0];
   int C = in_t->shape[1];
 
@@ -715,63 +640,29 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  clock_t start_time = clock();
-
   maxpool2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, N, C, H_IN, W_IN, kH, kW);
-
-  CHECK_CUDA(cudaDeviceSynchronize());
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  clock_t end_time2 = clock();
-
-  double total_maxpool2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_maxpool2d_time: %.10f seconds\n", total_maxpool2d_time);
 }
 
-__global__ void relu_kernel(float *inout, int N)
+__global__ void relu_kernel(float *x, int numel)
 {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= N)
+  if (tid >= numel)
     return;
 
-  float in_val = inout[tid];
-  float val = in_val > 0.0f ? in_val : 0.0f;
-  inout[tid] = val;
+  const float in_val = x[tid];
+  const float val = in_val > 0.0f ? in_val : 0.0f;
+  x[tid] = val;
 }
 
 static void relu(Tensor *inout_t)
 {
-  printf("relu on GPU!!!\n");
-
-  clock_t start_time2 = clock();
-
-  float *inout = inout_t->buf;
-  int N = inout_t->get_elem();
-
-  auto inout_gpu = inout_t->gpu_buf;
+  const int N = inout_t->get_elem();
+  float *inout_gpu = inout_t->gpu_buf;
 
   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  clock_t start_time = clock();
-
   relu_kernel<<<gridDim, blockDim>>>(inout_gpu, N);
-
-  CHECK_CUDA(cudaDeviceSynchronize());
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  clock_t end_time2 = clock();
-
-  double total_relu_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_relu_time: %.10f seconds\n", total_relu_time);
 }
 
 void finalize_model()
