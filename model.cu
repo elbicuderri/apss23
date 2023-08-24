@@ -147,15 +147,8 @@ void initialize_model(const char *parameter_fname)
 // Size of out = N * C_OUT * (H_IN-K+1) * (W_IN-K+1)
 // Weight : C_OUT * C_IN * K * K
 // Bias : C_OUT
-
 static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                    Tensor *bias_t);
-
-static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                      Tensor *bias_t);
-
-static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                       Tensor *bias_t);
 
 // MaxPool2d
 // https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
@@ -163,30 +156,14 @@ static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 // size of out = N * (H / kH) * (W / kW)
 static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW);
 
-static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW);
-
-static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW);
-
 // InstanceNorm2D
 // https://pytorch.org/docs/stable/generated/torch.nn.InstanceNorm2d.html
 // size of in  = N * C * H * W
 // size of out = N * C * H * W
 // weight : C
 // bias : C
-static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                           Tensor *bias_t);
-
-static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                              Tensor *bias_t);
-
-static void instancenorm2d_v3(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                              Tensor *bias_t);
-
 static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                                Tensor *bias_t);
-
-static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                                   Tensor *bias_t);
 
 // Linear
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
@@ -197,18 +174,10 @@ static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t
 static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                    Tensor *bias_t);
 
-static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                      Tensor *bias_t);
-
-static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                       Tensor *bias_t);
-
 // ReLU (inplace)
 // https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html
 // size of in & out = N
 static void relu(Tensor *inout_t);
-
-static void relu_gpu(Tensor *inout_t);
 
 void model_forward(float *inputN, float *outputN)
 {
@@ -256,47 +225,29 @@ void model_forward(float *inputN, float *outputN)
                           micro_batch * 256 * 256 * sizeof(float),
                           cudaMemcpyHostToDevice));
 
-    // conv2d_v2(input, c1, conv0_weight, conv0_bias);
-    conv2d_gpu(input, c1, conv0_weight, conv0_bias);
+    conv2d(input, c1, conv0_weight, conv0_bias);
 
-    // instancenorm2d_v3(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-    // instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-    instancenorm2d_gpu_cpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+    instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
-    // maxpool2d_v2(i1, m1, 2, 2);
-    maxpool2d_gpu(i1, m1, 2, 2);
+    maxpool2d(i1, m1, 2, 2);
 
-    // relu(m1);
-    relu_gpu(m1);
+    relu(m1);
 
-    // conv2d_v2(m1, c2, conv1_weight, conv1_bias);
-    conv2d_gpu(m1, c2, conv1_weight, conv1_bias);
+    conv2d(m1, c2, conv1_weight, conv1_bias);
 
-    // instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
-    // instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
-    instancenorm2d_gpu_cpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+    instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
-    // maxpool2d_v2(i2, m2, 2, 2);
-    maxpool2d_gpu(i2, m2, 2, 2);
+    maxpool2d(i2, m2, 2, 2);
 
-    // relu(m2);
-    relu_gpu(m2);
+    relu(m2);
 
-    // linear_v2(m2, l1, linear1_weight, linear1_bias);
-    linear_gpu(m2, l1, linear1_weight, linear1_bias);
+    linear(m2, l1, linear1_weight, linear1_bias);
 
-    // relu(l1);
-    relu_gpu(l1);
+    relu(l1);
 
-    // linear_v2(l1, l2, linear2_weight, linear2_bias);
-    linear_gpu(l1, l2, linear2_weight, linear2_bias);
+    linear(l1, l2, linear2_weight, linear2_bias);
 
-    std::cout << "3rd linear start" << std::endl;
-    // linear_v2(l2, output, linear3_weight, linear3_bias);
-    linear_gpu(l2, output, linear3_weight, linear3_bias);
-    std::cout << "3rd linear end" << std::endl;
-
-    // memcpy(outputN, output->buf, N * 2 * sizeof(float));
+    linear(l2, output, linear3_weight, linear3_bias);
 
     // CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
     //                       output->buf + 2 * max_batch_per_step * idx,
@@ -326,52 +277,6 @@ void model_forward(float *inputN, float *outputN)
   std::cout << "input output free end" << std::endl;
 }
 
-// void model_forward(float *inputN, float *outputN)
-// {
-//   for (int idx = 0; idx < N; idx++)
-//   {
-//     // memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
-
-//     // For test
-//     CHECK_CUDA(cudaMemcpy(input->buf,
-//                           inputN + 256 * 256 * idx,
-//                           256 * 256 * sizeof(float),
-//                           cudaMemcpyHostToHost));
-
-//     conv2d(input, c1, conv0_weight, conv0_bias);
-//     instancenorm2d(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
-//     maxpool2d(i1, m1, 2, 2);
-//     relu(m1);
-//     conv2d(m1, c2, conv1_weight, conv1_bias);
-//     instancenorm2d(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
-//     maxpool2d(i2, m2, 2, 2);
-//     relu(m2);
-
-//     // m2->reshape({N, 256 * 62, 62});
-
-//     // linear(m2, l1, linear1_weight, linear1_bias);
-
-//     m2->reshape({N, 256 * 62, 62});
-//     linear_v2(m2, l1, linear1_weight, linear1_bias);
-//     // l1->reshape({256, 62, 128});
-
-//     relu(l1);
-
-//     // linear(l1, l2, linear2_weight, linear2_bias);
-
-//     l1->reshape({N, 256 * 62, 128});
-//     linear_v2(l1, l2, linear2_weight, linear2_bias);
-
-//     // l2->reshape({1, 1015808});
-//     // linear(l2, output, linear3_weight, linear3_bias);
-
-//     l2->reshape({N, 1, 1015808});
-//     linear_v2(l2, output, linear3_weight, linear3_bias);
-
-//     memcpy(outputN + 2 * idx, output->buf, 2 * sizeof(float));
-//   }
-// }
-
 __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
                               int N, int C, int K, int H, int W, int kH, int kW)
 {
@@ -393,7 +298,6 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
   // output(N, K, oH, oW)
 
   // n * K * oH * oW + k * oH * oW + oh * oW + ow
-
   // ow: output w-index
   int ow = tid % oW;
   int idx = tid / oW; // n * K * oH + k * oH + oh
@@ -427,12 +331,11 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
       }
     }
   }
-  // int out_idx = n * C_OUT * H_OUT * W_OUT + c_out * H_OUT * W_OUT + h_out * W_OUT + w_out;
   out[tid] = sum;
 }
 
-static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                       Tensor *bias_t)
+static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                   Tensor *bias_t)
 {
   std::cout << "conv2d on GPU!!!" << std::endl;
   clock_t start_time2 = clock();
@@ -468,18 +371,6 @@ static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
 
-  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
-
-  // //////
-  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
-
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
@@ -495,358 +386,16 @@ static void conv2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
   printf("Elapsed time: %.10f seconds\n", elapsed_time);
 
-  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  // in_t->free_gpu_buf();
-  // out_t->free_gpu_buf();
-  // weight_t->free_gpu_buf();
-  // bias_t->free_gpu_buf();
-
   clock_t end_time2 = clock();
 
   double total_conv2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
   printf("total_conv2d_time: %.10f seconds\n", total_conv2d_time);
 }
 
-static void conv2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                      Tensor *bias_t)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int kH = weight_t->shape[2];
-  int kW = weight_t->shape[3];
-
-  int C_IN = weight_t->shape[1];  //=in_t->shape[0];
-  int C_OUT = weight_t->shape[0]; //=out_t->shape[0];
-
-  int N = in_t->shape[0];
-
-  int H_IN = in_t->shape[2];
-  int W_IN = in_t->shape[3];
-
-  int H_OUT = H_IN - kH + 1; //=out_t->shape[1];
-  int W_OUT = W_IN - kW + 1; //=out_t->shape[2];
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c_out = 0; c_out < C_OUT; c_out++)
-    {
-      for (int h_out = 0; h_out < H_OUT; h_out++)
-      {
-        for (int w_out = 0; w_out < W_OUT; w_out++)
-        {
-          // int out_idx = c_out * H_OUT * W_OUT + h_out * W_OUT + w_out;
-          // out[out_idx] = bias[c_out];
-          float sum = bias[c_out];
-          for (int c_in = 0; c_in < C_IN; c_in++)
-          {
-            for (int kh = 0; kh < kH; kh++)
-            {
-              for (int kw = 0; kw < kW; kw++)
-              {
-                int in_idx = n * C_IN * H_IN * W_IN + c_in * H_IN * W_IN + (h_out + kh) * W_IN + (w_out + kw);
-                int weight_idx = c_out * C_IN * kH * kW + c_in * kH * kW + kh * kW + kw;
-                sum += in[in_idx] * weight[weight_idx];
-              }
-            }
-          }
-          int out_idx = n * C_OUT * H_OUT * W_OUT + c_out * H_OUT * W_OUT + h_out * W_OUT + w_out;
-          // int out_idx = c_out * H_OUT * W_OUT + h_out * W_OUT + w_out;
-          out[out_idx] = sum;
-        }
-      }
-    }
-  }
-}
-
-static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                   Tensor *bias_t)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int K = weight_t->shape[2]; //=weight_t->shape[3];
-
-  int C_IN = weight_t->shape[1];  //=in_t->shape[0];
-  int C_OUT = weight_t->shape[0]; //=out_t->shape[0];
-
-  int H_IN = in_t->shape[1];
-  int W_IN = in_t->shape[2];
-  int H_OUT = H_IN - K + 1; //=out_t->shape[1];
-  int W_OUT = W_IN - K + 1; //=out_t->shape[2];
-
-  for (int c_out = 0; c_out < C_OUT; c_out++)
-  {
-    for (int h_out = 0; h_out < H_OUT; h_out++)
-    {
-      for (int w_out = 0; w_out < W_OUT; w_out++)
-      {
-        out[c_out * H_OUT * W_OUT + h_out * W_OUT + w_out] = bias[c_out];
-        for (int c_in = 0; c_in < C_IN; c_in++)
-        {
-          for (int kh = 0; kh < K; kh++)
-          {
-            for (int kw = 0; kw < K; kw++)
-            {
-              out[c_out * H_OUT * W_OUT + h_out * W_OUT + w_out] +=
-                  in[c_in * H_IN * W_IN + (h_out + kh) * W_IN + (w_out + kw)] *
-                  weight[c_out * C_IN * K * K + c_in * K * K + kh * K + kw];
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-__global__ void instancenorm2d_kernel(const float *in, float *out, const float *weight, const float *bias,
+__global__ void instancenorm2d_kernel(const float *in, float *out,
+                                      const float *weight, const float *bias,
+                                      const float *mean, const float *var,
                                       int N, int C, int H, int W)
-{
-
-  int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  int output_numel = N * C * H * W;
-  // printf("tid: %d\n", tid);
-  // printf("N: %d\n", N);
-  // printf("C: %d\n", C);
-  // printf("H: %d\n", H);
-  // printf("W: %d\n", W);
-  // printf("output_numel: %d\n", output_numel);
-
-  if (tid >= output_numel)
-  {
-    // printf("tid >= output_numel\n");
-    // printf("tid: %d\n", tid);
-    // printf("output_numel: %d\n", output_numel);
-    return;
-  }
-
-  // // /////////////////////////////////////////////////////
-  // // input (N, C, H, W)
-  // // weight (C)
-  // // bias (C)
-  // // output(N, C, H, W)
-
-  // // n * C * H * W + c * H * W + oh * W + ow
-
-  // // ow: output w-index
-  // // int ow = tid % W;
-  // int idx = tid / W; // n * C * H + c * H + oh
-
-  // // oh: output h-index
-  // int oh = idx % H;
-  // idx = idx / oh; // n * C + c
-
-  // // c: output channel-index
-  // int c = idx % C;
-
-  // // n: output batch-index
-  // int n = idx / C;
-
-  // float mean = 0.0f, var = 0.0f;
-
-  // // float m = 0.0f, v = 0.0f;
-
-  // // Caculate mean
-  // for (int h = 0; h < H; h++)
-  // {
-  //   for (int w = 0; w < W; w++)
-  //   {
-  //     int idx1 = n * C * H * W + c * H * W + h * W + w;
-  //     // if (idx1 >= output_numel) {
-  //     //   printf("idx1 >= output_numel\n");
-  //     //   printf("idx1: %d\n", idx1);
-  //     //   printf("output_numel: %d\n", output_numel);
-  //     // }
-  //     if (idx1 < output_numel)
-  //     {
-  //       mean += in[idx1];
-  //     }
-  //     __syncthreads();
-  //     // m += in[idx1];
-  //   }
-  //   __syncthreads();
-  // }
-  // mean /= H * W;
-  // __syncthreads();
-  // // __syncthreads();
-
-  // // Caculate Variance
-  // for (int hh = 0; hh < H; hh++)
-  // {
-  //   for (int ww = 0; ww < W; ww++)
-  //   {
-  //     int idx2 = n * C * H * W + c * H * W + hh * W + ww;
-  //     // if (idx2 >= output_numel) {
-  //     //   printf("idx2 >= output_numel\n");
-  //     //   printf("idx2: %d\n", idx2);
-  //     //   printf("output_numel: %d\n", output_numel);
-  //     // }
-  //     if (idx2 < output_numel)
-  //     {
-  //       var += (in[idx2] - mean) * (in[idx2] - mean);
-  //     }
-  //     __syncthreads();
-  //   }
-  //   __syncthreads();
-  // }
-  // var /= H * W;
-  // __syncthreads();
-  //
-  // if (tid < output_numel)
-  // {
-  //   out[tid] = ((in[tid] - mean) / sqrt(var + 1e-5)) * weight[c] + bias[c];
-  // }
-  // // /////////////////////////////////////////////////////
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c = 0; c < C; c++)
-    {
-      float e = 0.0f, v = 0.0f;
-
-      // Caculate mean
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          e += in[in_idx];
-        }
-      }
-      e /= H * W;
-
-      // Caculate Variance
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          v += (in[in_idx] - e) * (in[in_idx] - e);
-        }
-      }
-      v /= H * W;
-
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int out_idx = n * C * H * W + c * H * W + h * W + w;
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          out[out_idx] = (in[in_idx] - e) / sqrt(v + 1e-5) * weight[c] + bias[c];
-        }
-      }
-    }
-  }
-}
-
-static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                               Tensor *bias_t)
-{
-  std::cout << "instancenorm2d on GPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  // input (N, C, H, W)
-  // weight (C)
-  // bias (C)
-  // output(N, C, H, W)
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "in_t->shape[0]: " << in_t->shape[0] << std::endl;
-  // std::cout << "in_t->shape[1]: " << in_t->shape[1] << std::endl;
-  // std::cout << "in_t->shape[2]: " << in_t->shape[2] << std::endl;
-  // std::cout << "in_t->shape[3]: " << in_t->shape[3] << std::endl;
-  // std::cout << "========================" << std::endl;
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
-  // std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
-  // std::cout << "out_t->shape[2]: " << out_t->shape[2] << std::endl;
-  // std::cout << "out_t->shape[3]: " << out_t->shape[3] << std::endl;
-  // std::cout << "========================" << std::endl;
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "weight_t->shape[0]: " << weight_t->shape[0] << std::endl;
-  // std::cout << "bias_t->shape[0]: " << bias_t->shape[0] << std::endl;
-  // std::cout << "========================" << std::endl;
-
-  int N = in_t->shape[0];
-  int C = in_t->shape[1];
-  int H = in_t->shape[2];
-  int W = in_t->shape[3];
-
-  int in_numel = in_t->get_elem();
-  int out_numel = out_t->get_elem();
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
-
-  // std::cout << "========================" << std::endl;
-  // std::cout << "in_numel: " << in_numel << std::endl;
-  // std::cout << "out_numel: " << out_numel << std::endl;
-  // std::cout << "weight_numel: " << weight_numel << std::endl;
-  // std::cout << "bias_numel: " << bias_numel << std::endl;
-  // std::cout << "========================" << std::endl;
-
-  float *in_cpu = in_t->buf;
-  float *out_cpu = out_t->buf;
-  float *weight_cpu = weight_t->buf;
-  float *bias_cpu = bias_t->buf;
-
-  auto in_gpu = in_t->gpu_buf;
-  auto out_gpu = out_t->gpu_buf;
-  auto weight_gpu = weight_t->gpu_buf;
-  auto bias_gpu = bias_t->gpu_buf;
-
-  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
-
-  // //////
-  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-  dim3 blockDim(THREADS_PER_BLOCK);
-
-  clock_t start_time = clock();
-
-  // instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
-
-  instancenorm2d_kernel<<<1, 1>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, N, C, H, W);
-
-  // Code to be timed
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  // in_t->free_gpu_buf();
-  // out_t->free_gpu_buf();
-  // weight_t->free_gpu_buf();
-  // bias_t->free_gpu_buf();
-
-  clock_t end_time2 = clock();
-
-  double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
-}
-
-__global__ void instancenorm2d_kernel_v2(const float *in, float *out,
-                                         const float *weight, const float *bias,
-                                         const float *mean, const float *var,
-                                         int N, int C, int H, int W)
 {
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -929,8 +478,8 @@ __global__ void compute_mean_var_kernel(const float *in, float *mean, float *var
   var[mv_idx] = v;
 }
 
-static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                                   Tensor *bias_t)
+static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                               Tensor *bias_t)
 {
   std::cout << "instancenorm2d on GPU and CPU!!!" << std::endl;
 
@@ -980,7 +529,7 @@ static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  instancenorm2d_kernel_v2<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
+  instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
 
   CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -994,384 +543,8 @@ static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t
   double total_instancenorm2d_time = (double)(end_time2 - start_time) / CLOCKS_PER_SEC;
   printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
 
-  // free(mean_cpu);
-  // free(var_cpu);
-  // CHECK_CUDA(cudaFree(mean_gpu));
-  // CHECK_CUDA(cudaFree(var_gpu));
-}
-
-// static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-//                                    Tensor *bias_t)
-// {
-//   std::cout << "instancenorm2d on GPU and CPU!!!" << std::endl;
-
-//   clock_t start_time2 = clock();
-
-//   int in_numel = in_t->get_elem();
-//   int out_numel = out_t->get_elem();
-//   int weight_numel = weight_t->get_elem();
-//   int bias_numel = bias_t->get_elem();
-
-//   in_t->buf = (float *)malloc(in_numel * sizeof(float));
-//   out_t->buf = (float *)malloc(out_numel * sizeof(float));
-
-//   CHECK_CUDA(
-//       cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
-//   CHECK_CUDA(
-//       cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-//   float *in = in_t->buf;
-//   float *out = out_t->buf;
-//   float *weight_cpu = weight_t->buf;
-//   float *bias_cpu = bias_t->buf;
-
-//   const int N = in_t->shape[0]; //=out_t->shape[0];
-//   const int C = in_t->shape[1]; //=out_t->shape[1];
-//   const int H = in_t->shape[2]; //=out_t->shape[2];
-//   const int W = in_t->shape[3]; //=out_t->shape[3];
-
-//   // input (N, C, H, W)
-//   // weight (C)
-//   // bias (C)
-//   // output(N, C, H, W)
-
-//   float *mean_cpu = (float *)malloc(N * C * sizeof(float));
-//   float *var_cpu = (float *)malloc(N * C * sizeof(float));
-
-//   clock_t start_time = clock();
-
-//   for (int n = 0; n < N; n++)
-//   {
-//     for (int c = 0; c < C; c++)
-//     {
-//       float e = 0.0f, v = 0.0f;
-
-//       // Caculate mean
-//       for (int h = 0; h < H; h++)
-//       {
-//         for (int w = 0; w < W; w++)
-//         {
-//           int in_idx = n * C * H * W + c * H * W + h * W + w;
-//           e += in[in_idx];
-//         }
-//       }
-//       e /= H * W;
-//       mean_cpu[n * C + c] = e;
-
-//       // Caculate Variance
-//       for (int h = 0; h < H; h++)
-//       {
-//         for (int w = 0; w < W; w++)
-//         {
-//           int in_idx = n * C * H * W + c * H * W + h * W + w;
-//           v += (in[in_idx] - e) * (in[in_idx] - e);
-//         }
-//       }
-//       v /= H * W;
-//       var_cpu[n * C + c] = v;
-//     }
-//   }
-
-//   clock_t end_time3 = clock();
-
-//   double compute_mean_var_time = (double)(end_time3 - start_time) / CLOCKS_PER_SEC;
-//   printf("compute_mean_var_time: %.10f seconds\n", compute_mean_var_time);
-
-//   float *mean_gpu;
-//   float *var_gpu;
-
-//   CHECK_CUDA(cudaMalloc((void **)&mean_gpu, N * C * sizeof(float)));
-//   CHECK_CUDA(cudaMalloc((void **)&var_gpu, N * C * sizeof(float)));
-
-//   CHECK_CUDA(
-//       cudaMemcpy(mean_gpu, mean_cpu, N * C * sizeof(float), cudaMemcpyHostToDevice));
-//   CHECK_CUDA(
-//       cudaMemcpy(var_gpu, var_cpu, N * C * sizeof(float), cudaMemcpyHostToDevice));
-
-//   auto in_gpu = in_t->gpu_buf;
-//   auto out_gpu = out_t->gpu_buf;
-//   auto weight_gpu = weight_t->gpu_buf;
-//   auto bias_gpu = bias_t->gpu_buf;
-
-//   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-//   dim3 blockDim(THREADS_PER_BLOCK);
-
-//   instancenorm2d_kernel_v2<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
-
-//   CHECK_CUDA(cudaDeviceSynchronize());
-
-//   clock_t end_time = clock();
-
-//   double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-//   printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-//   clock_t end_time2 = clock();
-
-//   double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-//   printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
-
-//   free(mean_cpu);
-//   free(var_cpu);
-//   CHECK_CUDA(cudaFree(mean_gpu));
-//   CHECK_CUDA(cudaFree(var_gpu));
-// }
-
-static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                              Tensor *bias_t)
-{
-  std::cout << "instancenorm2d on CPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  int in_numel = in_t->get_elem();
-  int out_numel = out_t->get_elem();
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
-
-  in_t->buf = (float *)malloc(in_numel * sizeof(float));
-  out_t->buf = (float *)malloc(out_numel * sizeof(float));
-  weight_t->buf = (float *)malloc(weight_numel * sizeof(float));
-  bias_t->buf = (float *)malloc(bias_numel * sizeof(float));
-
-  CHECK_CUDA(
-      cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(weight_t->buf, weight_t->gpu_buf, weight_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(bias_t->buf, bias_t->gpu_buf, bias_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int N = in_t->shape[0]; //=out_t->shape[0];
-  int C = in_t->shape[1]; //=out_t->shape[1];
-  int H = in_t->shape[2]; //=out_t->shape[2];
-  int W = in_t->shape[3]; //=out_t->shape[3];
-
-  clock_t start_time = clock();
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c = 0; c < C; c++)
-    {
-      float e = 0, v = 0;
-
-      // Caculate mean
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          e += in[in_idx];
-        }
-      }
-      e /= H * W;
-
-      // Caculate Variance
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          v += (in[in_idx] - e) * (in[in_idx] - e);
-        }
-      }
-      v /= H * W;
-
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int out_idx = n * C * H * W + c * H * W + h * W + w;
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          out[out_idx] = (in[in_idx] - e) / sqrt(v + 1e-5) * weight[c] + bias[c];
-        }
-      }
-    }
-  }
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  CHECK_CUDA(
-      cudaMemcpy(out_t->gpu_buf, out_t->buf, out_numel * sizeof(float), cudaMemcpyHostToDevice));
-  out_t->free_cpu_buf();
-
-  clock_t end_time2 = clock();
-
-  double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
-}
-
-static void instancenorm2d_v3(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                              Tensor *bias_t)
-{
-  std::cout << "instancenorm2d on CPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  int in_numel = in_t->get_elem();
-  int out_numel = out_t->get_elem();
-  int weight_numel = weight_t->get_elem();
-  int bias_numel = bias_t->get_elem();
-
-  in_t->buf = (float *)malloc(in_numel * sizeof(float));
-  out_t->buf = (float *)malloc(out_numel * sizeof(float));
-  weight_t->buf = (float *)malloc(weight_numel * sizeof(float));
-  bias_t->buf = (float *)malloc(bias_numel * sizeof(float));
-
-  CHECK_CUDA(
-      cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(weight_t->buf, weight_t->gpu_buf, weight_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(bias_t->buf, bias_t->gpu_buf, bias_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int N = in_t->shape[0]; //=out_t->shape[0];
-  int C = in_t->shape[1]; //=out_t->shape[1];
-  int H = in_t->shape[2]; //=out_t->shape[2];
-  int W = in_t->shape[3]; //=out_t->shape[3];
-
-  // input (N, C, H, W)
-  // weight (C)
-  // bias (C)
-  // output(N, C, H, W)
-
-  float *mean_arr = (float *)malloc(N * C * sizeof(float));
-  float *var_arr = (float *)malloc(N * C * sizeof(float));
-
-  clock_t start_time = clock();
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c = 0; c < C; c++)
-    {
-      float e = 0.0f, v = 0.0f;
-
-      // Caculate mean
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          e += in[in_idx];
-        }
-      }
-      e /= H * W;
-      mean_arr[n * C + c] = e;
-
-      // Caculate Variance
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          v += (in[in_idx] - e) * (in[in_idx] - e);
-        }
-      }
-      v /= H * W;
-      var_arr[n * C + c] = v;
-    }
-  }
-
-  clock_t end_time3 = clock();
-
-  double compute_mean_var_time = (double)(end_time3 - start_time) / CLOCKS_PER_SEC;
-  printf("compute_mean_var_time: %.10f seconds\n", compute_mean_var_time);
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c = 0; c < C; c++)
-    {
-      for (int h = 0; h < H; h++)
-      {
-        for (int w = 0; w < W; w++)
-        {
-          int out_idx = n * C * H * W + c * H * W + h * W + w;
-          int in_idx = n * C * H * W + c * H * W + h * W + w;
-          int mean_var_idx = n * C + c;
-          float mean = mean_arr[mean_var_idx];
-          float var = var_arr[mean_var_idx];
-          out[out_idx] = (in[in_idx] - mean) / sqrt(var + 1e-5) * weight[c] + bias[c];
-        }
-      }
-    }
-  }
-
-  clock_t end_time = clock();
-
-  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-  printf("Elapsed time: %.10f seconds\n", elapsed_time);
-
-  CHECK_CUDA(
-      cudaMemcpy(out_t->gpu_buf, out_t->buf, out_numel * sizeof(float), cudaMemcpyHostToDevice));
-  out_t->free_cpu_buf();
-
-  clock_t end_time2 = clock();
-
-  double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
-}
-
-static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                           Tensor *bias_t)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int C = in_t->shape[0]; //=out_t->shape[0];
-  int H = in_t->shape[1]; //=out_t->shape[1];
-  int W = in_t->shape[2]; //=out_t->shape[2];
-
-  for (int c = 0; c < C; c++)
-  {
-    float e = 0, v = 0;
-
-    // Caculate mean
-    for (int h = 0; h < H; h++)
-    {
-      for (int w = 0; w < W; w++)
-      {
-        e += in[c * H * W + h * W + w];
-      }
-    }
-    e /= H * W;
-
-    // Caculate Variance
-    for (int h = 0; h < H; h++)
-    {
-      for (int w = 0; w < W; w++)
-      {
-        v += (in[c * H * W + h * W + w] - e) * (in[c * H * W + h * W + w] - e);
-      }
-    }
-    v /= H * W;
-
-    for (int h = 0; h < H; h++)
-    {
-      for (int w = 0; w < W; w++)
-      {
-        out[c * H * W + h * W + w] =
-            (in[c * H * W + h * W + w] - e) / sqrt(v + 1e-5) * weight[c] +
-            bias[c];
-      }
-    }
-  }
+  CHECK_CUDA(cudaFree(mean_gpu));
+  CHECK_CUDA(cudaFree(var_gpu));
 }
 
 __global__ void linear_kernel(float *in, float *out, float *weight, float *bias, int B, int M, int N, int K)
@@ -1411,8 +584,8 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
   out[tid] = sum;
 }
 
-static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                       Tensor *bias_t)
+static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                   Tensor *bias_t)
 {
   std::cout << "linear on GPU!!!" << std::endl;
 
@@ -1438,12 +611,6 @@ static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
 
-  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
-
-  //////
   int weight_numel = weight_t->get_elem();
   int bias_numel = bias_t->get_elem();
 
@@ -1452,12 +619,6 @@ static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   auto weight_gpu = weight_t->gpu_buf;
   auto bias_gpu = bias_t->gpu_buf;
-
-  // CHECK_CUDA(cudaMalloc(&weight_gpu, weight_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(weight_gpu, weight_cpu, weight_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&bias_gpu, bias_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(bias_gpu, bias_cpu, bias_numel * sizeof(float), cudaMemcpyHostToDevice));
 
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
@@ -1473,92 +634,10 @@ static void linear_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
   printf("Elapsed time: %.10f seconds\n", elapsed_time);
 
-  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  // in_t->free_gpu_buf();
-  // out_t->free_gpu_buf();
-  // weight_t->free_gpu_buf();
-  // bias_t->free_gpu_buf();
-
   clock_t end_time2 = clock();
 
   double total_linear_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
   printf("total_linear_time: %.10f seconds\n", total_linear_time);
-}
-
-static void linear_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                      Tensor *bias_t)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  // (B, M, K) @ (K, N) -> (B, M, N)
-
-  int B = in_t->shape[0];
-  int M = in_t->shape[1];
-
-  int K = weight_t->shape[0]; // in_t의 마지막 차원
-  int N = weight_t->shape[1]; // out_t의 마지막 차원
-  // int N = out_t->shape[2]; // out_t의 마지막 차원
-
-  std::cout << "========================" << std::endl;
-  std::cout << "out_t->shape[0]: " << out_t->shape[0] << std::endl;
-  std::cout << "out_t->shape[1]: " << out_t->shape[1] << std::endl;
-  std::cout << "out_t->shape[2]: " << out_t->shape[2] << std::endl;
-  std::cout << "========================" << std::endl;
-
-  for (int b = 0; b < B; b++)
-  {
-    for (int m = 0; m < M; m++)
-    {
-      for (int n = 0; n < N; n++)
-      {
-        float sum = bias[n];
-        for (int k = 0; k < K; k++)
-        {
-          int in_idx = b * M * K + m * K + k;
-          // int weight_idx = n * K + k;
-          int weight_idx = n * K + k;
-          sum += in[in_idx] * weight[weight_idx];
-        }
-        int out_idx = b * M * N + m * N + n;
-        out[out_idx] = sum;
-      }
-    }
-  }
-  ///
-}
-
-static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
-                   Tensor *bias_t)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-  float *weight = weight_t->buf;
-  float *bias = bias_t->buf;
-
-  int K = weight_t->shape[0]; // in_t의 마지막 차원
-  int N = weight_t->shape[1]; // out_t의 마지막 차원
-
-  int M = in_t->get_elem() / K; //=out_t->get_elem()/N
-
-  for (int m = 0; m < M; m++)
-  {
-    for (int n = 0; n < N; n++)
-    {
-      float sum = bias[n];
-      for (int k = 0; k < K; k++)
-      {
-        int in_idx = m * K + k;
-        int weight_idx = n * K + k;
-        sum += in[in_idx] * weight[weight_idx];
-      }
-      int out_idx = m * N + n;
-      out[out_idx] = sum;
-    }
-  }
 }
 
 __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
@@ -1589,51 +668,12 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
   // n: output batch-index
   int n = idx / C;
 
-  // output(n, c, h_out, w_out)
-
-  // int first_in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH) * W_IN + (w_out * kW);
-  // float max_val = in[first_in_idx];
-
   float max_val = -FLT_MAX;
   float in_val;
-  // float max_val = -1000000000.0f;
 
   int h_idx, w_idx, in_idx;
   int kh, kw;
   int nc_idx = n * C * H_IN * W_IN + c * H_IN * W_IN;
-
-  // for (kh = 0; kh < kH; kh++)
-  // {
-  //   for (kw = 0; kw < kW; kw++)
-  //   {
-  //     h_idx = h_out * kH + kh;
-  //     w_idx = w_out * kW + kw;
-
-  //     // if (h_idx >= 0 && h_idx < H_IN && w_idx >= 0 && w_idx < W_IN)
-  //     // {
-  //     //   int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
-  //     //   float in_val = in[in_idx];
-
-  //     //   if (in_val > max_val)
-  //     //   {
-  //     //     max_val = in_val;
-  //     //   }
-  //     // }
-
-  //     // in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
-  //     in_idx = nc_idx + h_idx * W_IN + w_idx;
-  //     // float in_val = in[in_idx];
-  //     in_val = in[in_idx];
-
-  //     max_val = max(max_val, in_val);
-
-  //     // if (in_val > max_val)
-  //     // {
-  //     //   max_val = in_val;
-  //     // }
-  //   }
-  // }
-  // out[tid] = max_val;
 
   for (kw = 0; kw < kW; kw++)
   {
@@ -1642,34 +682,16 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
       h_idx = h_out * kH + kh;
       w_idx = w_out * kW + kw;
 
-      // if (h_idx >= 0 && h_idx < H_IN && w_idx >= 0 && w_idx < W_IN)
-      // {
-      //   int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
-      //   float in_val = in[in_idx];
-
-      //   if (in_val > max_val)
-      //   {
-      //     max_val = in_val;
-      //   }
-      // }
-
-      // in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
       in_idx = nc_idx + h_idx * W_IN + w_idx;
-      // float in_val = in[in_idx];
       in_val = in[in_idx];
 
       max_val = max(max_val, in_val);
-
-      // if (in_val > max_val)
-      // {
-      //   max_val = in_val;
-      // }
     }
   }
   out[tid] = max_val;
 }
 
-static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
+static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
 {
   std::cout << "maxpool2d on GPU!!!" << std::endl;
 
@@ -1690,11 +712,6 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   auto in_gpu = in_t->gpu_buf;
   auto out_gpu = out_t->gpu_buf;
 
-  // CHECK_CUDA(cudaMalloc(&in_gpu, in_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(in_gpu, in_cpu, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-
-  // CHECK_CUDA(cudaMalloc(&out_gpu, out_numel * sizeof(float)));
-
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
@@ -1709,138 +726,10 @@ static void maxpool2d_gpu(Tensor *in_t, Tensor *out_t, int kH, int kW)
   double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
   printf("Elapsed time: %.10f seconds\n", elapsed_time);
 
-  // CHECK_CUDA(cudaMemcpy(out_cpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  // in_t->free_gpu_buf();
-  // out_t->free_gpu_buf();
-
   clock_t end_time2 = clock();
 
   double total_maxpool2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
   printf("total_maxpool2d_time: %.10f seconds\n", total_maxpool2d_time);
-}
-
-static void maxpool2d_v2(Tensor *in_t, Tensor *out_t, int kH, int kW)
-{
-  std::cout << "maxpool2d on CPU!!!" << std::endl;
-
-  clock_t start_time2 = clock();
-
-  int in_numel = in_t->get_elem();
-  int out_numel = out_t->get_elem();
-
-  // CHECK_CUDA(cudaMallocHost((void **)&in_t->buf, in_numel * sizeof(float)));
-  // CHECK_CUDA(cudaMallocHost((void **)&out_t->buf, out_numel * sizeof(float)));
-
-  in_t->buf = (float *)malloc(in_numel * sizeof(float));
-  out_t->buf = (float *)malloc(out_numel * sizeof(float));
-
-  CHECK_CUDA(
-      cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
-  CHECK_CUDA(
-      cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
-
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-
-  int N = in_t->shape[0];
-  int C = in_t->shape[1];
-
-  int H_IN = in_t->shape[2];
-  int W_IN = in_t->shape[3];
-
-  int H_OUT = H_IN / kH; // =out_t->shape[2];
-  int W_OUT = W_IN / kW; // =out_t->shape[3];
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int c = 0; c < C; c++)
-    {
-      for (int h_out = 0; h_out < H_OUT; h_out++)
-      {
-        for (int w_out = 0; w_out < W_OUT; w_out++)
-        {
-          int first_in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + (h_out * kH) * W_IN + (w_out * kW);
-          // assert(first_in_idx < in_numel);
-
-          float max_val = in[first_in_idx];
-          for (int kh = 0; kh < kH; kh++)
-          {
-            for (int kw = 0; kw < kW; kw++)
-            {
-              int h_idx = h_out * kH + kh;
-              int w_idx = w_out * kW + kw;
-              if (h_idx < H_IN && w_idx < W_IN)
-              {
-                int in_idx = n * C * H_IN * W_IN + c * H_IN * W_IN + h_idx * W_IN + w_idx;
-                // assert(in_idx < in_numel);
-
-                float in_val = in[in_idx];
-                if (in_val > max_val)
-                {
-                  max_val = in_val;
-                }
-              }
-            }
-          }
-          int out_idx = n * C * H_OUT * W_OUT + c * H_OUT * W_OUT + h_out * W_OUT + w_out;
-          // assert(out_idx < out_numel);
-
-          out[out_idx] = max_val;
-        }
-      }
-    }
-  }
-  ///
-  // CHECK_CUDA(
-  //     cudaMemcpy(in_t->gpu_buf, in_t->buf, in_numel * sizeof(float), cudaMemcpyHostToDevice));
-  CHECK_CUDA(
-      cudaMemcpy(out_t->gpu_buf, out_t->buf, out_numel * sizeof(float), cudaMemcpyHostToDevice));
-  // in_t->free_cpu_buf();
-  // out_t->free_cpu_buf();
-
-  clock_t end_time2 = clock();
-
-  double total_maxpool2d_cpu_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
-  printf("total_maxpool2d_cpu_time: %.10f seconds\n", total_maxpool2d_cpu_time);
-}
-
-static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
-{
-  float *in = in_t->buf;
-  float *out = out_t->buf;
-
-  int H_IN = in_t->shape[1];
-  int W_IN = in_t->shape[2];
-  int H_OUT = H_IN / kH; // =out_t->shape[1];
-  int W_OUT = W_IN / kW; // =out_t->shape[2];
-
-  int N = in_t->shape[0];
-
-  for (int n = 0; n < N; n++)
-  {
-    for (int h_out = 0; h_out < H_OUT; h_out++)
-    {
-      for (int w_out = 0; w_out < W_OUT; w_out++)
-      {
-        float max_val = in[n * H_IN * W_IN + (h_out * kH) * H_IN + (w_out * kW)];
-        for (int kh = 0; kh < kH; kh++)
-        {
-          for (int kw = 0; kw < kW; kw++)
-          {
-            int in_idx = n * H_IN * W_IN + (h_out * kH + kh) * H_IN + (w_out * kW + kw);
-            float in_val = in[in_idx];
-            if (in_val > max_val)
-            {
-              max_val = in_val;
-            }
-          }
-        }
-        int out_idx = n * H_OUT * W_OUT + h_out * W_OUT + w_out;
-        out[out_idx] = max_val;
-      }
-    }
-  }
 }
 
 __global__ void relu_kernel(float *inout, int N)
@@ -1849,11 +738,12 @@ __global__ void relu_kernel(float *inout, int N)
   if (tid >= N)
     return;
 
-  float val = inout[tid] > 0.0f ? inout[tid] : 0.0f;
+  float in_val = inout[tid];
+  float val = in_val > 0.0f ? in_val : 0.0f;
   inout[tid] = val;
 }
 
-static void relu_gpu(Tensor *inout_t)
+static void relu(Tensor *inout_t)
 {
   printf("relu on GPU!!!\n");
 
@@ -1862,17 +752,14 @@ static void relu_gpu(Tensor *inout_t)
   float *inout = inout_t->buf;
   int N = inout_t->get_elem();
 
-  auto tmp_buf = inout_t->gpu_buf;
-
-  // CHECK_CUDA(cudaMalloc(&tmp_buf, N * sizeof(float)));
-  // CHECK_CUDA(cudaMemcpy(tmp_buf, inout, N * sizeof(float), cudaMemcpyHostToDevice));
+  auto inout_gpu = inout_t->gpu_buf;
 
   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
   clock_t start_time = clock();
 
-  relu_kernel<<<gridDim, blockDim>>>(tmp_buf, N);
+  relu_kernel<<<gridDim, blockDim>>>(inout_gpu, N);
 
   CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -1881,24 +768,10 @@ static void relu_gpu(Tensor *inout_t)
   double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
   printf("Elapsed time: %.10f seconds\n", elapsed_time);
 
-  // CHECK_CUDA(cudaMemcpy(inout, tmp_buf, N * sizeof(float), cudaMemcpyDeviceToHost));
-
-  // inout_t->free_gpu_buf();
-
   clock_t end_time2 = clock();
 
   double total_relu_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
   printf("total_relu_time: %.10f seconds\n", total_relu_time);
-}
-
-static void relu(Tensor *inout_t)
-{
-  float *inout = inout_t->buf;
-  int N = inout_t->get_elem();
-  for (int n = 0; n < N; n++)
-  {
-    inout[n] = fmaxf(inout[n], 0);
-  }
 }
 
 void finalize_model()
