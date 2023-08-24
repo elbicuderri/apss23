@@ -88,45 +88,40 @@ void initialize_model(const char *parameter_fname)
   instanceNorm2d1_bias = new Tensor(buf, {256});
   buf += 256;
   linear1_weight = new Tensor(buf, {62, 128});
-  // linear1_weight = new Tensor(buf, {128, 62});
   buf += 7936;
   linear1_bias = new Tensor(buf, {128});
   buf += 128;
   linear2_weight = new Tensor(buf, {128, 64});
-  // linear2_weight = new Tensor(buf, {64, 128});
   buf += 8192;
   linear2_bias = new Tensor(buf, {64});
   buf += 64;
   linear3_weight = new Tensor(buf, {1015808, 2});
-  // linear3_weight = new Tensor(buf, {2, 1015808});
   buf += 2031616;
   linear3_bias = new Tensor(buf, {2});
   buf += 2;
 
-  // input = new Tensor({1, 256, 256});
-  input = new Tensor({N, 1, 256, 256});
-  // input = new Tensor({N, 1, 256, 256}, /*malloc_on_host=*/true);
+  if (N <= max_batch_per_step)
+  {
+    input = new Tensor({N, 1, 256, 256});
+  }
+  else
+  {
+    input = new Tensor({N, 1, 256, 256}, /*malloc_on_host=*/true);
+  }
 
-  // c1 = new Tensor({128, 254, 254});
   c1 = new Tensor({N, 128, 254, 254});
 
-  // i1 = new Tensor({128, 254, 254});
   i1 = new Tensor({N, 128, 254, 254});
 
-  // m1 = new Tensor({128, 127, 127});
   m1 = new Tensor({N, 128, 127, 127});
 
-  // c2 = new Tensor({256, 125, 125});
   c2 = new Tensor({N, 256, 125, 125});
 
-  // i2 = new Tensor({256, 125, 125});
   i2 = new Tensor({N, 256, 125, 125});
 
   m2 = new Tensor({N, 256 * 62, 62});
-  // m2 = new Tensor({N, 256, 62, 62});
 
   l1 = new Tensor({N, 256 * 62, 128});
-  // l1 = new Tensor({N, 256, 62, 128});
 
   l2 = new Tensor({N, 1, 256 * 62 * 64});
 
@@ -154,7 +149,7 @@ static void conv2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 // https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
 // size of in  = N * H_IN * W_IN
 // size of out = N * (H / kH) * (W / kW)
-static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW);
+static void maxpool2d_relu(Tensor *in_t, Tensor *out_t, int kH, int kW);
 
 // InstanceNorm2D
 // https://pytorch.org/docs/stable/generated/torch.nn.InstanceNorm2d.html
@@ -174,10 +169,13 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                    Tensor *bias_t);
 
+static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                        Tensor *bias_t);
+
 // ReLU (inplace)
 // https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html
 // size of in & out = N
-static void relu(Tensor *inout_t);
+// static void relu(Tensor *inout_t);
 
 void model_forward(float *inputN, float *outputN)
 {
@@ -229,21 +227,15 @@ void model_forward(float *inputN, float *outputN)
 
     instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
-    maxpool2d(i1, m1, 2, 2);
-
-    relu(m1);
+    maxpool2d_relu(i1, m1, 2, 2);
 
     conv2d(m1, c2, conv1_weight, conv1_bias);
 
     instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
-    maxpool2d(i2, m2, 2, 2);
+    maxpool2d_relu(i2, m2, 2, 2);
 
-    relu(m2);
-
-    linear(m2, l1, linear1_weight, linear1_bias);
-
-    relu(l1);
+    linear_relu(m2, l1, linear1_weight, linear1_bias);
 
     linear(l1, l2, linear2_weight, linear2_bias);
 
@@ -504,11 +496,12 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 
   instancenorm2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
 
-  CHECK_CUDA(cudaFree(mean_gpu));
-  CHECK_CUDA(cudaFree(var_gpu));
+  // CHECK_CUDA(cudaFree(mean_gpu));
+  // CHECK_CUDA(cudaFree(var_gpu));
 }
 
-__global__ void linear_kernel(float *in, float *out, float *weight, float *bias, int B, int M, int N, int K)
+__global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
+                              int B, int M, int N, int K, bool do_relu)
 {
 
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -534,7 +527,8 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
   // b: output batch-index
   int b = idx / M;
 
-  float sum = bias[n];
+  // float sum = bias[n];
+  float sum = 0.0f;
   for (int k = 0; k < K; k++)
   {
     int in_idx = b * M * K + m * K + k;
@@ -542,7 +536,16 @@ __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
     int weight_idx = n * K + k;
     sum += in[in_idx] * weight[weight_idx];
   }
-  out[tid] = sum;
+  sum += bias[n];
+  if (do_relu)
+  {
+    constexpr float zero = 0.0f;
+    out[tid] = sum > zero ? sum : zero;
+  }
+  else
+  {
+    out[tid] = sum;
+  }
 }
 
 static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
@@ -569,10 +572,37 @@ static void linear(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K);
+  linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K, false);
 }
 
-__global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
+static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                        Tensor *bias_t)
+{
+  int B = in_t->shape[0];
+  int M = in_t->shape[1];
+
+  int K = weight_t->shape[0];
+  int N = weight_t->shape[1];
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+
+  auto in_gpu = in_t->gpu_buf;
+  auto out_gpu = out_t->gpu_buf;
+
+  int weight_numel = weight_t->get_elem();
+  int bias_numel = bias_t->get_elem();
+
+  auto weight_gpu = weight_t->gpu_buf;
+  auto bias_gpu = bias_t->gpu_buf;
+
+  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  dim3 blockDim(THREADS_PER_BLOCK);
+
+  linear_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, B, M, N, K, true);
+}
+
+__global__ void maxpool2d_relu_kernel(float *in, float *out, int N, int C, int H_IN, int W_IN, int kH, int kW)
 {
 
   int H_OUT = H_IN / kH;
@@ -600,7 +630,8 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
   // n: output batch-index
   int n = idx / C;
 
-  float max_val = -FLT_MAX;
+  // float max_val = -FLT_MAX;
+  float max_val = 0.0f;
   float in_val;
 
   int h_idx, w_idx, in_idx;
@@ -623,7 +654,7 @@ __global__ void maxpool2d_kernel(float *in, float *out, int N, int C, int H_IN, 
   out[tid] = max_val;
 }
 
-static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
+static void maxpool2d_relu(Tensor *in_t, Tensor *out_t, int kH, int kW)
 {
   int N = in_t->shape[0];
   int C = in_t->shape[1];
@@ -640,30 +671,30 @@ static void maxpool2d(Tensor *in_t, Tensor *out_t, int kH, int kW)
   dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
   dim3 blockDim(THREADS_PER_BLOCK);
 
-  maxpool2d_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, N, C, H_IN, W_IN, kH, kW);
+  maxpool2d_relu_kernel<<<gridDim, blockDim>>>(in_gpu, out_gpu, N, C, H_IN, W_IN, kH, kW);
 }
 
-__global__ void relu_kernel(float *x, int numel)
-{
-  int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= numel)
-    return;
+// __global__ void relu_kernel(float *x, int numel)
+// {
+//   int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//   if (tid >= numel)
+//     return;
 
-  const float in_val = x[tid];
-  const float val = in_val > 0.0f ? in_val : 0.0f;
-  x[tid] = val;
-}
+//   const float in_val = x[tid];
+//   const float val = in_val > 0.0f ? in_val : 0.0f;
+//   x[tid] = val;
+// }
 
-static void relu(Tensor *inout_t)
-{
-  const int N = inout_t->get_elem();
-  float *inout_gpu = inout_t->gpu_buf;
+// static void relu(Tensor *inout_t)
+// {
+//   const int N = inout_t->get_elem();
+//   float *inout_gpu = inout_t->gpu_buf;
 
-  dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-  dim3 blockDim(THREADS_PER_BLOCK);
+//   dim3 gridDim((N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+//   dim3 blockDim(THREADS_PER_BLOCK);
 
-  relu_kernel<<<gridDim, blockDim>>>(inout_gpu, N);
-}
+//   relu_kernel<<<gridDim, blockDim>>>(inout_gpu, N);
+// }
 
 void finalize_model()
 {
