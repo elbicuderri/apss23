@@ -100,36 +100,42 @@ void initialize_model(const char *parameter_fname)
   linear3_bias = new Tensor(buf, {2});
   buf += 2;
 
+  int batch = N;
+
   if (N <= max_batch_per_step)
   {
-    input = new Tensor({N, 1, 256, 256});
+    std::cout << "N <= max_batch_per_step" << std::endl;
   }
   else
   {
-    input = new Tensor({N, 1, 256, 256}, /*malloc_on_host=*/true);
+    batch = 256;
+    std::cout << "N > max_batch_per_step" << std::endl;
   }
 
-  c1 = new Tensor({N, 128, 254, 254});
+  input = new Tensor({batch, 1, 256, 256});
 
-  i1 = new Tensor({N, 128, 254, 254});
+  c1 = new Tensor({batch, 128, 254, 254});
 
-  m1 = new Tensor({N, 128, 127, 127});
+  i1 = new Tensor({batch, 128, 254, 254});
 
-  c2 = new Tensor({N, 256, 125, 125});
+  m1 = new Tensor({batch, 128, 127, 127});
 
-  i2 = new Tensor({N, 256, 125, 125});
+  c2 = new Tensor({batch, 256, 125, 125});
 
-  m2 = new Tensor({N, 256 * 62, 62});
+  i2 = new Tensor({batch, 256, 125, 125});
 
-  l1 = new Tensor({N, 256 * 62, 128});
+  m2 = new Tensor({batch, 256 * 62, 62});
 
-  l2 = new Tensor({N, 1, 256 * 62 * 64});
+  l1 = new Tensor({batch, 256 * 62, 128});
 
-  output = new Tensor({N, 1, 2});
+  l2 = new Tensor({batch, 1, 256 * 62 * 64});
+
+  output = new Tensor({batch, 1, 2});
 
   std::cout << "========================" << std::endl;
   std::cout << "initialize_model" << std::endl;
   std::cout << "N: " << N << std::endl;
+  std::cout << "batch: " << batch << std::endl;
   std::cout << "parameter_fname" << std::endl;
   std::cout << parameter_fname << std::endl;
   std::cout << "========================" << std::endl;
@@ -213,15 +219,27 @@ void model_forward(float *inputN, float *outputN)
     //                       cudaMemcpyHostToDevice));
 
     // // For test
+    // float *batch_input = nullptr;
+
+    if (steps == 1)
+    {
+      CHECK_CUDA(cudaMemcpy(input->gpu_buf,
+                            inputN,
+                            micro_batch * 256 * 256 * sizeof(float),
+                            cudaMemcpyHostToDevice));
+    }
+    else
+    {
+      CHECK_CUDA(cudaMemcpy(input->gpu_buf,
+                            inputN + 256 * 256 * max_batch_per_step * idx,
+                            micro_batch * 256 * 256 * sizeof(float),
+                            cudaMemcpyHostToDevice));
+    }
+
     // CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * max_batch_per_step * idx,
     //                       inputN + 256 * 256 * max_batch_per_step * idx,
     //                       micro_batch * 256 * 256 * sizeof(float),
     //                       cudaMemcpyHostToDevice));
-
-    CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * max_batch_per_step * idx,
-                          inputN + 256 * 256 * max_batch_per_step * idx,
-                          micro_batch * 256 * 256 * sizeof(float),
-                          cudaMemcpyHostToDevice));
 
     conv2d(input, c1, conv0_weight, conv0_bias);
 
@@ -249,7 +267,7 @@ void model_forward(float *inputN, float *outputN)
     std::cout << "cudaMemcpy output start" << std::endl;
 
     CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
-                          output->gpu_buf + 2 * max_batch_per_step * idx,
+                          output->gpu_buf,
                           micro_batch * 2 * sizeof(float),
                           cudaMemcpyDeviceToHost));
 

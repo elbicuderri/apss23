@@ -27,7 +27,7 @@ struct Tensor
   int shape[4];
   float *buf = nullptr;
   float *gpu_buf = nullptr;
-  Tensor(const vector<int> &shape_, bool malloc_on_host = false);
+  Tensor(const vector<int> &shape_);
   Tensor(float *data, const vector<int> &shape_);
 
   ~Tensor();
