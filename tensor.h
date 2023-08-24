@@ -27,7 +27,7 @@ struct Tensor
   int shape[4];
   float *buf = nullptr;
   float *gpu_buf = nullptr;
-  Tensor(const vector<int> &shape_, bool malloc_on_host = false);
+  Tensor(const vector<int> &shape_);
   Tensor(float *data, const vector<int> &shape_);
 
   ~Tensor();
@@ -43,7 +43,6 @@ struct Tensor
       return;
     }
     CHECK_CUDA(cudaFree(gpu_buf));
-    // CHECK_CUDA(cudaFreeAsync(gpu_buf, 0));
     gpu_buf = nullptr;
   }
   void free_cpu_buf()
