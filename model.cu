@@ -256,17 +256,15 @@ __global__ void conv2d_kernel(float *in, float *out, float *weight, float *bias,
   }
 
   float sum = bias[k];
+  int in_idx, weight_idx;
   for (int c = 0; c < C; c++)
   {
     for (int kh = 0; kh < kH; kh++)
     {
       for (int kw = 0; kw < kW; kw++)
       {
-        int in_h_idx = oh + kh;
-        int in_w_idx = ow + kw;
-
-        int in_idx = n * C * H * W + c * H * W + in_h_idx * W + in_w_idx;
-        int weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
+        in_idx = n * C * H * W + c * H * W + (oh + kh) * W + (ow + kw);
+        weight_idx = k * C * kH * kW + c * kH * kW + kh * kW + kw;
         sum += in[in_idx] * weight[weight_idx];
       }
     }
