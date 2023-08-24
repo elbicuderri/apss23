@@ -64,6 +64,9 @@ static Tensor *conv0_weight, *conv0_bias, *conv1_weight, *conv1_bias,
     *instanceNorm2d0_bias, *instanceNorm2d1_weight, *instanceNorm2d1_bias;
 
 static Tensor *input, *output, *c1, *i1, *m1, *c2, *i2, *m2, *l1, *l2;
+
+static constexpr int max_batch_per_step = 256;
+
 void initialize_model(const char *parameter_fname)
 {
   size_t m; // 2345922
@@ -102,6 +105,7 @@ void initialize_model(const char *parameter_fname)
 
   // input = new Tensor({1, 256, 256});
   input = new Tensor({N, 1, 256, 256});
+  // input = new Tensor({N, 1, 256, 256}, /*malloc_on_host=*/true);
 
   // c1 = new Tensor({128, 254, 254});
   c1 = new Tensor({N, 128, 254, 254});
@@ -175,8 +179,14 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                               Tensor *bias_t);
 
+static void instancenorm2d_v3(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                              Tensor *bias_t);
+
 static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                                Tensor *bias_t);
+
+static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                                   Tensor *bias_t);
 
 // Linear
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
@@ -205,21 +215,21 @@ void model_forward(float *inputN, float *outputN)
   printf("model_forward\n");
   printf("N: %d\n", N);
 
-  int batch_per_step = 128;
+  // int max_batch_per_step = 128;
 
-  int steps = (N + batch_per_step - 1) / batch_per_step;
-  int nn = N % batch_per_step;
-  int last_batch = nn == 0 ? batch_per_step : nn;
+  int steps = (N + max_batch_per_step - 1) / max_batch_per_step;
+  int nn = N % max_batch_per_step;
+  int last_batch = nn == 0 ? max_batch_per_step : nn;
 
   std::cout << "steps: " << steps << std::endl;
-  std::cout << "batch_per_step: " << batch_per_step << std::endl;
+  std::cout << "max_batch_per_step: " << max_batch_per_step << std::endl;
   std::cout << "last_batch: " << last_batch << std::endl;
 
   for (int idx = 0; idx < steps; idx++)
   {
     // memcpy(input->buf, inputN + 256 * 256 * idx, 256 * 256 * sizeof(float));
 
-    int micro_batch = batch_per_step;
+    int micro_batch = max_batch_per_step;
     if (idx == (steps - 1))
     {
       micro_batch = last_batch;
@@ -236,16 +246,22 @@ void model_forward(float *inputN, float *outputN)
     //                       cudaMemcpyHostToDevice));
 
     // // For test
-    CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * batch_per_step * idx,
-                          inputN + 256 * 256 * batch_per_step * idx,
+    // CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * max_batch_per_step * idx,
+    //                       inputN + 256 * 256 * max_batch_per_step * idx,
+    //                       micro_batch * 256 * 256 * sizeof(float),
+    //                       cudaMemcpyHostToDevice));
+
+    CHECK_CUDA(cudaMemcpy(input->gpu_buf + 256 * 256 * max_batch_per_step * idx,
+                          inputN + 256 * 256 * max_batch_per_step * idx,
                           micro_batch * 256 * 256 * sizeof(float),
                           cudaMemcpyHostToDevice));
 
     // conv2d_v2(input, c1, conv0_weight, conv0_bias);
     conv2d_gpu(input, c1, conv0_weight, conv0_bias);
 
-    instancenorm2d_v2(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+    // instancenorm2d_v3(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
     // instancenorm2d_gpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
+    instancenorm2d_gpu_cpu(c1, i1, instanceNorm2d0_weight, instanceNorm2d0_bias);
 
     // maxpool2d_v2(i1, m1, 2, 2);
     maxpool2d_gpu(i1, m1, 2, 2);
@@ -256,8 +272,9 @@ void model_forward(float *inputN, float *outputN)
     // conv2d_v2(m1, c2, conv1_weight, conv1_bias);
     conv2d_gpu(m1, c2, conv1_weight, conv1_bias);
 
-    instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+    // instancenorm2d_v2(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
     // instancenorm2d_gpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
+    instancenorm2d_gpu_cpu(c2, i2, instanceNorm2d1_weight, instanceNorm2d1_bias);
 
     // maxpool2d_v2(i2, m2, 2, 2);
     maxpool2d_gpu(i2, m2, 2, 2);
@@ -281,15 +298,15 @@ void model_forward(float *inputN, float *outputN)
 
     // memcpy(outputN, output->buf, N * 2 * sizeof(float));
 
-    // CHECK_CUDA(cudaMemcpy(outputN + 2 * batch_per_step * idx,
-    //                       output->buf + 2 * batch_per_step * idx,
+    // CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
+    //                       output->buf + 2 * max_batch_per_step * idx,
     //                       micro_batch * 2 * sizeof(float),
     //                       cudaMemcpyHostToHost));
 
     std::cout << "cudaMemcpy output start" << std::endl;
 
-    CHECK_CUDA(cudaMemcpy(outputN + 2 * batch_per_step * idx,
-                          output->gpu_buf + 2 * batch_per_step * idx,
+    CHECK_CUDA(cudaMemcpy(outputN + 2 * max_batch_per_step * idx,
+                          output->gpu_buf + 2 * max_batch_per_step * idx,
                           micro_batch * 2 * sizeof(float),
                           cudaMemcpyDeviceToHost));
 
@@ -826,6 +843,411 @@ static void instancenorm2d_gpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
   printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
 }
 
+__global__ void instancenorm2d_kernel_v2(float *in, float *out,
+                                         float *weight, float *bias,
+                                         float *mean, float *var,
+                                         int N, int C, int H, int W)
+{
+
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  // constexpr int N = 1;
+  // constexpr int C = 128;
+  // constexpr int H = 254;
+  // constexpr int W = 254;
+
+  int output_numel = N * C * H * W;
+  // int output_numel = 1 * 128 * 254 * 254;
+  if (tid >= output_numel)
+  {
+    return;
+  }
+
+  // // int tid = n * C * H * W + c * H * W + h * W + w;
+  // int idx = tid / 254; // n * C * H + c * H + h
+  // if (tid >= 0 && tid < 1)
+  //   printf("tid: %d, idx: %d\n", tid, idx);
+  // if (tid >= 10047 && tid < 10048)
+  //   printf("tid: %d, idx: %d\n", tid, idx);
+
+  // idx = tid / 254; // n * C + c;
+  // if (tid >= 0 && tid < 1)
+  //   printf("tid: %d, idx: %d\n", tid, idx);
+  // if (tid >= 10047 && tid < 10048)
+  //   printf("tid: %d, idx: %d\n", tid, idx);
+  // int c = idx % 128;
+  // int n = idx / 128;
+
+  // if (tid >= 10000 && tid < 10300)
+  // {
+  //   printf("tid: %d, n: %d, c: %d\n", tid, n, c);
+  //   // printf("n: %d\n", n);
+  //   // printf("c: %d\n", c);
+  // }
+
+  // if (tid == 0)
+  // {
+  //   for (int i = 0; i < 10; i++)
+  //   {
+  //     printf("i: %d\n", i);
+  //     printf("mean[i]: %.4f\n", mean[i]);
+  //     printf("var[i]: %.4f\n", var[i]);
+  //   }
+  // }
+
+  // input (N, C, H, W)
+  // weight (C)
+  // bias (C)
+  // output(N, C, H, W)
+  // mean (N, C)
+  // var (N, C)
+
+  // int tid = n * C * H * W + c * H * W + h * W + w;
+  int w = tid % W;
+  int idx = tid / W; // n * C * H + c * H + h
+  if (tid >= 10048 && tid < 10049)
+  {
+    // printf("tid: %d, N: %d, C: %d, H: %d, W: %d\n", tid, N, C, H, W);
+    printf("11 -> tid: %d, idx: %d\n", tid, idx);
+  }
+  int h = idx % H;
+  idx = idx / H; // n * C + c;
+  if (tid >= 10048 && tid < 10049)
+  {
+    // printf("tid: %d, N: %d, C: %d, H: %d, W: %d\n", tid, N, C, H, W);
+    printf("22 -> tid: %d, idx: %d\n", tid, idx);
+  }
+  int c = idx % C;
+  int n = idx / C;
+
+  // if (tid >= 0 && tid < 1)
+  // {
+  //   // printf("tid: %d, N: %d, C: %d, H: %d, W: %d\n", tid, N, C, H, W);
+  //   printf("tid: %d, n: %d, c: %d, h: %d, w: %d\n", tid, n, c, h, w);
+  // }
+
+  if (tid >= 10048 && tid < 10049)
+  {
+    // printf("tid: %d, N: %d, C: %d, H: %d, W: %d\n", tid, N, C, H, W);
+    printf("tid: %d, n: %d, c: %d, h: %d, w: %d\n", tid, n, c, h, w);
+  }
+
+  int mean_var_idx = n * C + c;
+  // int mean_var_idx = c * N + n;
+  // int mean_var_idx = n * 128 + c;
+  // if (tid >= 0 && tid < 1)
+  //   printf("tid: %d, mean_var_idx: %d, N: %d, C: %d, H: %d, W: %d\n", tid, mean_var_idx, N, C, H, W);
+  // if (tid >= 10048 && tid < 10049)
+  //   printf("tid: %d, mean_var_idx: %d, N: %d, C: %d, H: %d, W: %d\n", tid, mean_var_idx, N, C, H, W);
+
+  // if (tid >= 0 && tid < 1)
+  //   printf("tid: %d, n: %d, c: %d, mean[mean_var_idx]: %f, var[mean_var_idx]: %f, mean_var_idx: %d, N: %d, C: %d, H: %d, W: %d\n",
+  //          tid, n, c, mean[mean_var_idx], var[mean_var_idx], mean_var_idx, N, C, H, W);
+  // if (tid >= 10048 && tid < 10049)
+  //   printf("tid: %d, n: %d, c: %d, mean[mean_var_idx]: %f, var[mean_var_idx]: %f, mean_var_idx: %d, N: %d, C: %d, H: %d, W: %d\n",
+  //          tid, n, c, mean[mean_var_idx], var[mean_var_idx], mean_var_idx, N, C, H, W);
+
+  // if (tid >= 0 && tid < 1)
+  //   printf("tid: %d, n: %d, c: %d, mean[mean_var_idx]: %d, var[mean_var_idx]: %d, mean_var_idx: %d, N, %d, C: %d, H: %d, W: %d\n",
+  //          tid, n, c, mean[mean_var_idx], var[mean_var_idx], mean_var_idx, N, C, H, W);
+
+  // if (tid >= 10047 && tid < 10049)
+  //   printf("tid: %d, n: %d, c: %d, mean[mean_var_idx]: %d, var[mean_var_idx]: %d, mean_var_idx: %d, N, %d, C: %d, H: %d, W: %d\n",
+  //          tid, n, c, mean[mean_var_idx], var[mean_var_idx], mean_var_idx, N, C, H, W);
+
+  // int mean_var_idx = n * C + c;
+  float m = mean[mean_var_idx];
+  float v = var[mean_var_idx];
+  // __syncthreads();
+
+  int wb_idx = c;
+  // int wb_idx = n;
+
+  if (tid < output_numel)
+  {
+    // out[tid] = (((in[tid] - m) / sqrt(v + 1e-5)) * weight[c]) + bias[c];
+    out[tid] = (((in[tid] - m) / sqrt(v + 1e-5)) * weight[wb_idx]) + bias[wb_idx];
+  }
+
+  // if (tid >= 0 && tid < 1)
+  //   // printf("tid: %d, out[tid]: %f, in[tid]: %f, N: %d, C: %d, H: %d, W: %d\n", tid, out[tid], in[tid], N, C, H, W);
+  //   printf("tid: %d, out[tid]: %f, in[tid]: %f, n, %d, c: %d, mean: %f, var: %f, weight: %f, bias: %f\n", tid, out[tid], in[tid], n, wb_idx, m, v, weight[wb_idx], bias[wb_idx]);
+  if (tid >= 10048 && tid < 10049)
+    // printf("tid: %d, out[tid]: %f, in[tid]: %f, N: %d, C: %d, H: %d, W: %d\n", tid, out[tid], in[tid], N, C, H, W);
+    printf("tid: %d, out[tid]: %f, in[tid]: %f, n, %d, c: %d, mean: %f, var: %f, weight: %f, bias: %f\n", tid, out[tid], in[tid], n, wb_idx, m, v, weight[wb_idx], bias[wb_idx]);
+
+  // double m = (double)(mean[mean_var_idx]);
+  // double v = (double)(var[mean_var_idx]);
+  // double eps = 1e-5;
+
+  // // out[tid] = (in[tid] - m) / sqrt(v + 1e-5) * weight[c] + bias[c];
+
+  // if (tid < output_numel)
+  // {
+  //   out[tid] = (float)((((double)(in[tid]) - m)) / sqrt((double)(v + 1e-5)) * (double)weight[c] + (double)bias[c]);
+  // }
+}
+
+static void instancenorm2d_gpu_cpu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                                   Tensor *bias_t)
+{
+  std::cout << "instancenorm2d on GPU and CPU!!!" << std::endl;
+
+  clock_t start_time2 = clock();
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+  int weight_numel = weight_t->get_elem();
+  int bias_numel = bias_t->get_elem();
+
+  in_t->buf = (float *)malloc(in_numel * sizeof(float));
+  out_t->buf = (float *)malloc(out_numel * sizeof(float));
+  weight_t->buf = (float *)malloc(weight_numel * sizeof(float));
+  bias_t->buf = (float *)malloc(bias_numel * sizeof(float));
+
+  CHECK_CUDA(
+      cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(weight_t->buf, weight_t->gpu_buf, weight_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(bias_t->buf, bias_t->gpu_buf, bias_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  float *in = in_t->buf;
+  float *out = out_t->buf;
+  float *weight_cpu = weight_t->buf;
+  float *bias_cpu = bias_t->buf;
+
+  const int N = in_t->shape[0]; //=out_t->shape[0];
+  const int C = in_t->shape[1]; //=out_t->shape[1];
+  const int H = in_t->shape[2]; //=out_t->shape[2];
+  const int W = in_t->shape[3]; //=out_t->shape[3];
+
+  // input (N, C, H, W)
+  // weight (C)
+  // bias (C)
+  // output(N, C, H, W)
+
+  float *mean_cpu = (float *)malloc(N * C * sizeof(float));
+  float *var_cpu = (float *)malloc(N * C * sizeof(float));
+
+  clock_t start_time = clock();
+
+  for (int n = 0; n < N; n++)
+  {
+    for (int c = 0; c < C; c++)
+    {
+      float e = 0.0f, v = 0.0f;
+
+      // Caculate mean
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          e += in[in_idx];
+        }
+      }
+      e /= H * W;
+      mean_cpu[n * C + c] = e;
+
+      // Caculate Variance
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          v += (in[in_idx] - e) * (in[in_idx] - e);
+        }
+      }
+      v /= H * W;
+      var_cpu[n * C + c] = v;
+
+      // if (n == 0 && c == 0)
+      // {
+      //   std::cout << "===========================" << std::endl;
+      //   std::cout << "n: " << n << std::endl;
+      //   std::cout << "c: " << c << std::endl;
+      //   std::cout << "mean: " << e << std::endl;
+      //   std::cout << "var: " << v << std::endl;
+      //   std::cout << "===========================" << std::endl;
+      // }
+
+      if (n == 0 && c == 39)
+      {
+        std::cout << "===========================" << std::endl;
+        std::cout << "n: " << n << std::endl;
+        std::cout << "c: " << c << std::endl;
+        std::cout << "mean: " << e << std::endl;
+        std::cout << "var: " << v << std::endl;
+        std::cout << "===========================" << std::endl;
+      }
+    }
+  }
+
+  clock_t end_time3 = clock();
+
+  double compute_mean_var_time = (double)(end_time3 - start_time) / CLOCKS_PER_SEC;
+  printf("compute_mean_var_time: %.10f seconds\n", compute_mean_var_time);
+
+  // for (int i = 0; i < 10; i++)
+  // {
+  //   printf("i: %d\n", i);
+  //   printf("mean_cpu[i]: %.4f\n", mean_cpu[i]);
+  //   printf("var_cpu[i]: %.4f\n", var_cpu[i]);
+  //   // std::cout << "i: " << i << std::endl;
+  //   // std::cout << "mean_cpu[i]: " << mean_cpu[i] << std::endl;
+  //   // std::cout << "var_cpu[i]: " << var_cpu[i] << std::endl;
+  // }
+
+  float *mean_gpu;
+  float *var_gpu;
+
+  CHECK_CUDA(cudaMalloc((void **)&mean_gpu, N * C * sizeof(float)));
+  CHECK_CUDA(cudaMalloc((void **)&var_gpu, N * C * sizeof(float)));
+
+  CHECK_CUDA(
+      cudaMemcpy(mean_gpu, mean_cpu, N * C * sizeof(float), cudaMemcpyHostToDevice));
+  CHECK_CUDA(
+      cudaMemcpy(var_gpu, var_cpu, N * C * sizeof(float), cudaMemcpyHostToDevice));
+
+  auto in_gpu = in_t->gpu_buf;
+  auto out_gpu = out_t->gpu_buf;
+  auto weight_gpu = weight_t->gpu_buf;
+  auto bias_gpu = bias_t->gpu_buf;
+
+  dim3 gridDim((out_numel + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+  // dim3 gridDim(out_numel);
+  dim3 blockDim(THREADS_PER_BLOCK);
+
+  std::cout << "===========================" << std::endl;
+  std::cout << "N: " << N << std::endl;
+  std::cout << "C: " << C << std::endl;
+  std::cout << "H: " << H << std::endl;
+  std::cout << "W: " << W << std::endl;
+  std::cout << "===========================" << std::endl;
+
+  CHECK_CUDA(cudaDeviceSynchronize());
+
+  // int *p_N = (int *)malloc(sizeof(int));
+  // int *p_C = (int *)malloc(sizeof(int));
+  // int *p_H = (int *)malloc(sizeof(int));
+  // int *p_W = (int *)malloc(sizeof(int));
+
+  // p_N[0] = N;
+  // p_C[0] = C;
+  // p_H[0] = H;
+  // p_W[0] = W;
+
+  // CHECK_CUDA(cudaMalloc((void **)&mean_gpu, sizeof(int)));
+  // CHECK_CUDA(cudaMalloc((void **)&var_gpu, sizeof(int)));
+  // CHECK_CUDA(cudaMalloc((void **)&mean_gpu, sizeof(int)));
+  // CHECK_CUDA(cudaMalloc((void **)&var_gpu, sizeof(int)));
+
+  // instancenorm2d_kernel_v2<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu);
+
+  instancenorm2d_kernel_v2<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, N, C, H, W);
+  // instancenorm2d_kernel_v2<<<gridDim, blockDim>>>(in_gpu, out_gpu, weight_gpu, bias_gpu, mean_gpu, var_gpu, p_N, p_C, p_H, p_W);
+
+  CHECK_CUDA(cudaDeviceSynchronize());
+
+  // free(mean_cpu);
+  // free(var_cpu);
+
+  // CHECK_CUDA(cudaFree(mean_gpu));
+  // CHECK_CUDA(cudaFree(var_gpu));
+
+  for (int n = 0; n < N; n++)
+  {
+    for (int c = 0; c < C; c++)
+    {
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int out_idx = n * C * H * W + c * H * W + h * W + w;
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          int mean_var_idx = n * C + c;
+          float mean = mean_cpu[mean_var_idx];
+          float var = var_cpu[mean_var_idx];
+          out[out_idx] = (in[in_idx] - mean) / sqrt(var + 1e-5) * weight_cpu[c] + bias_cpu[c];
+
+          // if (out_idx == 0)
+          // {
+          //   std::cout << "===========================" << std::endl;
+          //   std::cout << "out_idx: " << out_idx << std::endl;
+          //   std::cout << "out[out_idx]: " << out[out_idx] << std::endl;
+          //   std::cout << "in[in_idx]: " << in[in_idx] << std::endl;
+          //   std::cout << "n: " << n << std::endl;
+          //   std::cout << "c: " << c << std::endl;
+          //   std::cout << "h: " << h << std::endl;
+          //   std::cout << "w: " << w << std::endl;
+          //   std::cout << "mean: " << mean << std::endl;
+          //   std::cout << "var: " << var << std::endl;
+          //   std::cout << "weight: " << weight_cpu[c] << std::endl;
+          //   std::cout << "bias: " << bias_cpu[c] << std::endl;
+          //   std::cout << "===========================" << std::endl;
+          // }
+
+          if (out_idx == 10048)
+          {
+            std::cout << "===========================" << std::endl;
+            std::cout << "out_idx: " << out_idx << std::endl;
+            std::cout << "out[out_idx]: " << out[out_idx] << std::endl;
+            std::cout << "in[in_idx]: " << in[in_idx] << std::endl;
+            std::cout << "n: " << n << std::endl;
+            std::cout << "c: " << c << std::endl;
+            std::cout << "h: " << h << std::endl;
+            std::cout << "w: " << w << std::endl;
+            std::cout << "mean: " << mean << std::endl;
+            std::cout << "var: " << var << std::endl;
+            std::cout << "weight: " << weight_cpu[c] << std::endl;
+            std::cout << "bias: " << bias_cpu[c] << std::endl;
+            std::cout << "===========================" << std::endl;
+          }
+        }
+      }
+    }
+  }
+
+  float *out_from_gpu = (float *)malloc(out_numel * sizeof(float));
+
+  CHECK_CUDA(
+      cudaMemcpy(out_from_gpu, out_gpu, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  std::cout << "out_numel: " << out_numel << std::endl;
+
+  int wrong_n = 0;
+
+  for (int ii = 0; ii < out_numel; ii++)
+  {
+    if (abs(out[ii] - out_from_gpu[ii]) > 0.1f)
+    {
+      wrong_n++;
+    }
+    // printf("ii: %d\n", ii);
+    // printf("out[ii]: %.4f\n", out[ii]);
+    // printf("out_from_gpu[ii]: %.4f\n", out_from_gpu[ii]);
+  }
+
+  std::cout << "wrong_n: " << wrong_n << std::endl;
+
+  clock_t end_time = clock();
+
+  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+  printf("Elapsed time: %.10f seconds\n", elapsed_time);
+
+  // CHECK_CUDA(
+  //     cudaMemcpy(out_t->gpu_buf, out_t->buf, out_numel * sizeof(float), cudaMemcpyHostToDevice));
+  // out_t->free_cpu_buf();
+
+  clock_t end_time2 = clock();
+
+  double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
+  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
+}
+
 static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
                               Tensor *bias_t)
 {
@@ -899,6 +1321,123 @@ static void instancenorm2d_v2(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
           int out_idx = n * C * H * W + c * H * W + h * W + w;
           int in_idx = n * C * H * W + c * H * W + h * W + w;
           out[out_idx] = (in[in_idx] - e) / sqrt(v + 1e-5) * weight[c] + bias[c];
+        }
+      }
+    }
+  }
+
+  clock_t end_time = clock();
+
+  double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+  printf("Elapsed time: %.10f seconds\n", elapsed_time);
+
+  CHECK_CUDA(
+      cudaMemcpy(out_t->gpu_buf, out_t->buf, out_numel * sizeof(float), cudaMemcpyHostToDevice));
+  out_t->free_cpu_buf();
+
+  clock_t end_time2 = clock();
+
+  double total_instancenorm2d_time = (double)(end_time2 - start_time2) / CLOCKS_PER_SEC;
+  printf("total_instancenorm2d_time: %.10f seconds\n", total_instancenorm2d_time);
+}
+
+static void instancenorm2d_v3(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
+                              Tensor *bias_t)
+{
+  std::cout << "instancenorm2d on CPU!!!" << std::endl;
+
+  clock_t start_time2 = clock();
+
+  int in_numel = in_t->get_elem();
+  int out_numel = out_t->get_elem();
+  int weight_numel = weight_t->get_elem();
+  int bias_numel = bias_t->get_elem();
+
+  in_t->buf = (float *)malloc(in_numel * sizeof(float));
+  out_t->buf = (float *)malloc(out_numel * sizeof(float));
+  weight_t->buf = (float *)malloc(weight_numel * sizeof(float));
+  bias_t->buf = (float *)malloc(bias_numel * sizeof(float));
+
+  CHECK_CUDA(
+      cudaMemcpy(in_t->buf, in_t->gpu_buf, in_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(out_t->buf, out_t->gpu_buf, out_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(weight_t->buf, weight_t->gpu_buf, weight_numel * sizeof(float), cudaMemcpyDeviceToHost));
+  CHECK_CUDA(
+      cudaMemcpy(bias_t->buf, bias_t->gpu_buf, bias_numel * sizeof(float), cudaMemcpyDeviceToHost));
+
+  float *in = in_t->buf;
+  float *out = out_t->buf;
+  float *weight = weight_t->buf;
+  float *bias = bias_t->buf;
+
+  int N = in_t->shape[0]; //=out_t->shape[0];
+  int C = in_t->shape[1]; //=out_t->shape[1];
+  int H = in_t->shape[2]; //=out_t->shape[2];
+  int W = in_t->shape[3]; //=out_t->shape[3];
+
+  // input (N, C, H, W)
+  // weight (C)
+  // bias (C)
+  // output(N, C, H, W)
+
+  float *mean_arr = (float *)malloc(N * C * sizeof(float));
+  float *var_arr = (float *)malloc(N * C * sizeof(float));
+
+  clock_t start_time = clock();
+
+  for (int n = 0; n < N; n++)
+  {
+    for (int c = 0; c < C; c++)
+    {
+      float e = 0.0f, v = 0.0f;
+
+      // Caculate mean
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          e += in[in_idx];
+        }
+      }
+      e /= H * W;
+      mean_arr[n * C + c] = e;
+
+      // Caculate Variance
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          v += (in[in_idx] - e) * (in[in_idx] - e);
+        }
+      }
+      v /= H * W;
+      var_arr[n * C + c] = v;
+    }
+  }
+
+  clock_t end_time3 = clock();
+
+  double compute_mean_var_time = (double)(end_time3 - start_time) / CLOCKS_PER_SEC;
+  printf("compute_mean_var_time: %.10f seconds\n", compute_mean_var_time);
+
+  for (int n = 0; n < N; n++)
+  {
+    for (int c = 0; c < C; c++)
+    {
+      for (int h = 0; h < H; h++)
+      {
+        for (int w = 0; w < W; w++)
+        {
+          int out_idx = n * C * H * W + c * H * W + h * W + w;
+          int in_idx = n * C * H * W + c * H * W + h * W + w;
+          int mean_var_idx = n * C + c;
+          float mean = mean_arr[mean_var_idx];
+          float var = var_arr[mean_var_idx];
+          out[out_idx] = (in[in_idx] - mean) / sqrt(var + 1e-5) * weight[c] + bias[c];
         }
       }
     }

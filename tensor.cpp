@@ -16,12 +16,16 @@
 
 using namespace std;
 
-Tensor::Tensor(const vector<int> &shape_) {
+Tensor::Tensor(const vector<int> &shape_, bool malloc_on_host) {
   reshape(shape_);
   // CHECK_CUDA(cudaMallocHost((void **)&buf, n * sizeof(float)));
   // buf = (float *)malloc(n * sizeof(float));
 
-  CHECK_CUDA(cudaMalloc((void **)&gpu_buf, n * sizeof(float)));
+  if (malloc_on_host) {
+    buf = (float *)malloc(n * sizeof(float));
+  } else {
+    CHECK_CUDA(cudaMalloc((void **)&gpu_buf, n * sizeof(float)));
+  }
 }
 
 Tensor::Tensor(float *data, const vector<int> &shape_) {

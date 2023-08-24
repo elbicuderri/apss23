@@ -98,6 +98,8 @@
         "matrixfunctions": "cpp",
         "nonlinearoptimization": "cpp",
         "writer_ternary_8bank cpp": "cpp",
-        "__nullptr": "cpp"
+        "__nullptr": "cpp",
+        "queue": "cpp",
+        "stack": "cpp"
     }
 }
