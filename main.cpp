@@ -1,8 +1,14 @@
+/*
+ * main.cpp Ver 3.0
+ * */
+
+
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
 #include <cuda_runtime.h>
+#include <math.h>
 
 #include "model.h"
 #include "util.h"
@@ -59,10 +65,22 @@ int main(int argc, char **argv) {
   double st = 0.0, et = 0.0;
   fprintf(stderr, " Start...");
 
+  for (int dev = 0 ; dev < 4 ; ++dev) { 
+    cudaSetDevice(dev);
+    cudaDeviceSynchronize();
+  } 
+  cudaSetDevice(0);
+  
   st = get_time();
 
   model_forward(input, output);
-
+  
+  for (int dev = 0 ; dev < 4 ; ++dev) { 
+    cudaSetDevice(dev);
+    cudaDeviceSynchronize();
+  }
+  cudaSetDevice(0);
+  
   et = get_time();
   fprintf(stderr, "  DONE!\n");
   fprintf(stderr, " ---------------------------------------------\n");
@@ -86,7 +104,7 @@ int main(int argc, char **argv) {
 
     int diff = -1;
     for (int i = 0; i < N * 2; i++) {
-      if (abs(*(output + i) - *(answer + i)) > 1e-3) {
+      if (fabs(*(output + i) - *(answer + i)) > fabs(*(answer + i)) * 1e-4 * 3) {
         diff = i;
         break;
       }

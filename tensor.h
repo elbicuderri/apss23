@@ -1,8 +1,8 @@
 #pragma once
 
+#include <iostream>
 #include <stdio.h>
 #include <vector>
-#include <iostream>
 
 #include "cuda_runtime.h"
 
@@ -27,7 +27,7 @@ struct Tensor
   int shape[4];
   float *buf = nullptr;
   float *gpu_buf = nullptr;
-  Tensor(const vector<int> &shape_);
+  Tensor(const vector<int> &shape_, bool malloc_on_host = false);
   Tensor(float *data, const vector<int> &shape_);
 
   ~Tensor();
@@ -38,19 +38,21 @@ struct Tensor
   void reshape(const vector<int> &shape_);
   void free_gpu_buf()
   {
-    // CHECK_CUDA(cudaFree(gpu_buf));
-    CHECK_CUDA(cudaFreeAsync(gpu_buf, 0));
-    // cudaFreeAsync
+    if (gpu_buf == nullptr)
+    {
+      return;
+    }
+    CHECK_CUDA(cudaFree(gpu_buf));
+    // CHECK_CUDA(cudaFreeAsync(gpu_buf, 0));
     gpu_buf = nullptr;
   }
-
-  void print_shape()
+  void free_cpu_buf()
   {
-    std::cout << "========================" << std::endl;
-    std::cout << "N: " << shape[0] << std::endl;
-    std::cout << "C: " << shape[1] << std::endl;
-    std::cout << "H: " << shape[2] << std::endl;
-    std::cout << "W: " << shape[3] << std::endl;
-    std::cout << "========================" << std::endl;
+    if (buf == nullptr)
+    {
+      return;
+    }
+    free(buf);
+    buf = nullptr;
   }
 };
