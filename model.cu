@@ -171,7 +171,7 @@ static void linear_relu(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 void model_forward(float *inputN, float *outputN)
 {
   int steps = (N + max_batch_per_step - 1) / max_batch_per_step;
-  int last_batch = max(max_batch_per_step, N % max_batch_per_step);
+  int last_batch = ((N % max_batch_per_step) == 0) ? max_batch_per_step : N;
 
   for (int idx = 0; idx < steps; idx++)
   {
@@ -317,7 +317,6 @@ __global__ void instancenorm2d_kernel(const float *in, float *out,
                                       const float *mean, const float *var,
                                       int N, int C, int H, int W)
 {
-
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   // int tid = n * C * H * W + c * H * W + h * W + w;
@@ -343,7 +342,6 @@ __global__ void instancenorm2d_kernel(const float *in, float *out,
 __global__ void compute_mean_var_kernel(const float *in, float *mean_var,
                                         int N, int C, int H, int W)
 {
-
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   // input (N, C, H, W)
@@ -436,7 +434,6 @@ static void instancenorm2d(Tensor *in_t, Tensor *out_t, Tensor *weight_t,
 __global__ void linear_kernel(float *in, float *out, float *weight, float *bias,
                               int B, int M, int N, int K, bool do_relu)
 {
-
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   // input (B, M, K)
