@@ -182,20 +182,10 @@ void model_forward(float *inputN, float *outputN)
       micro_batch = last_batch;
     }
 
-    if (steps == 1)
-    {
-      CHECK_CUDA(cudaMemcpy(input->gpu_buf,
-                            inputN,
-                            micro_batch * 256 * 256 * sizeof(float),
-                            cudaMemcpyHostToDevice));
-    }
-    else
-    {
-      CHECK_CUDA(cudaMemcpy(input->gpu_buf,
-                            inputN + 256 * 256 * max_batch_per_step * idx,
-                            micro_batch * 256 * 256 * sizeof(float),
-                            cudaMemcpyHostToDevice));
-    }
+    CHECK_CUDA(cudaMemcpy(input->gpu_buf,
+                          inputN + 256 * 256 * max_batch_per_step * idx,
+                          micro_batch * 256 * 256 * sizeof(float),
+                          cudaMemcpyHostToDevice));
 
     conv2d(input, c1, conv0_weight, conv0_bias);
 
